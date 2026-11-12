@@ -1,0 +1,118 @@
+/**
+ * Right-hand tool panel: tab strip (File / Explorer / Diff / Terminal) above
+ * the active tab body. The File tab hosts the read-only `FileViewer`, the
+ * Explorer tab hosts `FileExplorer`; Diff/Terminal bodies are placeholders
+ * filled in by later stories.
+ */
+import {
+  FileCode,
+  FolderTree,
+  GitCompareArrows,
+  SquareTerminal,
+  X,
+  type LucideIcon,
+} from 'lucide-react'
+import { useUiStore, type RightPanelTab } from '../../stores/ui'
+import { FileExplorer } from './FileExplorer'
+import { FileViewer } from './FileViewer'
+
+const TABS: { id: RightPanelTab; label: string; icon: LucideIcon }[] = [
+  { id: 'file', label: 'File', icon: FileCode },
+  { id: 'explorer', label: 'Explorer', icon: FolderTree },
+  { id: 'diff', label: 'Diff', icon: GitCompareArrows },
+  { id: 'terminal', label: 'Terminal', icon: SquareTerminal },
+]
+
+interface RightPanelProps {
+  /** Active workspace id (null until workspace selection lands). */
+  workspaceId: string | null
+}
+
+export function RightPanel({ workspaceId }: RightPanelProps): React.JSX.Element {
+  const activeTab = useUiStore((s) => s.activeTab)
+  const setTab = useUiStore((s) => s.setTab)
+  const closePanel = useUiStore((s) => s.closePanel)
+  const filePath = useUiStore((s) => s.filePath)
+  const line = useUiStore((s) => s.line)
+
+  return (
+    <div className="flex h-full min-h-0 flex-col bg-white">
+      {/* Tab strip */}
+      <div className="flex h-9 shrink-0 items-stretch border-b border-neutral-200">
+        <div role="tablist" className="flex min-w-0 flex-1">
+          {TABS.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              role="tab"
+              aria-selected={activeTab === id}
+              onClick={() => setTab(id)}
+              className={`flex items-center gap-1.5 border-b-2 px-3 text-xs ${
+                activeTab === id
+                  ? 'border-blue-500 text-neutral-900'
+                  : 'border-transparent text-neutral-500 hover:text-neutral-800'
+              }`}
+            >
+              <Icon className="h-3.5 w-3.5" />
+              {label}
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={closePanel}
+          aria-label="Close panel"
+          title="Close panel (Ctrl/Cmd+B)"
+          className="px-2 text-neutral-400 hover:text-neutral-700"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* Active tab body */}
+      <div className="min-h-0 flex-1">
+        {activeTab === 'file' &&
+          (filePath ? (
+            <FileViewer workspaceId={workspaceId} path={filePath} line={line} />
+          ) : (
+            <Placeholder
+              icon={FileCode}
+              title="No file open"
+              note="File references in chat and the explorer will open here."
+            />
+          ))}
+        {activeTab === 'explorer' && <FileExplorer workspaceId={workspaceId} />}
+        {activeTab === 'diff' && (
+          <Placeholder
+            icon={GitCompareArrows}
+            title="Diff"
+            note="Agent edit diffs land in a later story."
+          />
+        )}
+        {activeTab === 'terminal' && (
+          <Placeholder
+            icon={SquareTerminal}
+            title="Terminal"
+            note="Shell output lands in a later story."
+          />
+        )}
+      </div>
+    </div>
+  )
+}
+
+function Placeholder({
+  icon: Icon,
+  title,
+  note,
+}: {
+  icon: LucideIcon
+  title: string
+  note: string
+}): React.JSX.Element {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
+      <Icon className="h-6 w-6 text-neutral-300" />
+      <p className="text-sm text-neutral-500">{title}</p>
+      <p className="text-xs text-neutral-400">{note}</p>
+    </div>
+  )
+}

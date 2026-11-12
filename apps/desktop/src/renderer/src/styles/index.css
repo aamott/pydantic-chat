@@ -1,0 +1,20 @@
+@import 'tailwindcss';
+
+/*
+ * Dark mode is driven by the `data-theme` attribute on <html> (set by
+ * lib/theme.ts from the `theme` app setting) rather than the OS media
+ * query — this lets "dark" stay dark when the OS is light and vice versa.
+ */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+/*
+ * Chat transcript prose: Streamdown renders with its own Tailwind defaults;
+ * these rules only set block rhythm + text size inside a message.
+ */
+.prose-chat {
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+.prose-chat > * + * {
+  margin-top: 0.6em;
+}

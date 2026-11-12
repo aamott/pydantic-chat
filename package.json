@@ -1,0 +1,17 @@
+{
+  "name": "pydantic-chat",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "trustedDependencies": [
+    "electron"
+  ],
+  "scripts": {
+    "dev": "env -u ELECTRON_RUN_AS_NODE bun run --cwd apps/desktop dev",
+    "dev:server": "cd apps/backend && uv run uvicorn app.main:app --host 127.0.0.1 --port 8787 --reload",
+    "build": "bun run --cwd apps/desktop build",
+    "verify": "bun run --cwd apps/desktop verify"
+  }
+}

@@ -1,0 +1,41 @@
+# electron-builder config — v1 targets `bun run dist` (electron-builder --dir).
+#
+# LIMITATION: the Python backend is spawned from source via `uv run uvicorn`
+# (see src/main/sidecar.ts — dev resolves apps/backend, packaged builds look
+# for resources/backend). The extraResources block below copies the backend
+# source tree (minus venv/caches/tests) into resources/backend so `uv run`
+# can resolve the project from pyproject.toml/uv.lock. `uv run` auto-creates
+# `.venv` inside resources/backend on first launch — fine for writable --dir
+# layouts; installed layouts (AppImage/deb) may be read-only, which is one
+# reason signed installers stay a later milestone (plans/app-vision.md).
+# Such builds still need `uv` + Python on PATH.
+appId: com.pydanticchat.app
+productName: pydantic-chat
+# package.json `name` is the scoped "@pydantic-chat/desktop"; without this the
+# Linux binary would be named "@pydantic-chatdesktop".
+executableName: pydantic-chat
+directories:
+  output: dist
+files:
+  - out/**
+  - package.json
+asar: true
+# Bundle the backend source so the packaged sidecar path
+# (process.resourcesPath/backend) exists. Keep it small: no virtualenvs,
+# no Python caches, no test suite — uv rebuilds all of that on first run.
+extraResources:
+  - from: ../backend
+    to: backend
+    filter:
+      - "**/*"
+      - "!**/.venv/**"
+      - "!**/__pycache__/**"
+      - "!**/*.pyc"
+      - "!**/.pytest_cache/**"
+      - "!**/.ruff_cache/**"
+      - "!tests/**"
+linux:
+  # `--dir` (unpacked) is the v1 acceptance target. AppImage/deb are
+  # intentionally deferred until the frozen-sidecar epic.
+  target: dir
+  category: Development

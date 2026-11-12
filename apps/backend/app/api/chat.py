@@ -1,0 +1,301 @@
+"""Agent streaming endpoint: one run per request, Vercel AI UI Message Stream over SSE.
+
+Frontend contract
+-----------------
+`useChat` + `DefaultChatTransport` POST the run input to a single `api` URL —
+``POST /api/chat`` here — with the chat id in the body's top-level ``id`` field
+(``SubmitMessage`` / ``RegenerateMessage`` in
+``pydantic_ai.ui.vercel_ai.request_types``). ``VercelAIAdapter.conversation_id``
+reads that same field, so the body ``id`` IS the conversation id: no per-chat
+route and no transport customization beyond ``api: '/api/chat'``. Body shape::
+
+    {"id": "<chat_id>", "trigger": "submit-message", "messages": [UIMessage, ...]}
+    {"id": "<chat_id>", "trigger": "regenerate-message", "messages": [...], "messageId": "<id>"}
+
+The chat must already exist (``POST /api/workspaces/{workspace_id}/chats``): the
+run's workspace, model, and permission settings resolve from the chat row, so an
+``id`` the store doesn't know gets a 404 rather than silently running with no
+workspace. The conversation *record* is created by the store on first save, so a
+brand-new chat streams fine.
+
+``POST /api/chats/{chat_id}/stop`` cancels the chat's live run through a
+``CancellationToken`` registered on ``app.state.cancellation_tokens``. Client
+disconnect does NOT fire ``on_cancel`` (external ``CancelledError`` never
+becomes ``RunCancelled``), so the explicit stop route is the user's halt button.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING, Any
+
+from fastapi import APIRouter, HTTPException, Request, status
+from pydantic_ai import AgentRunResult, CancellationToken
+from pydantic_ai.conversation import Conversation
+from pydantic_ai.conversation_store import ConversationConflict
+from pydantic_ai.exceptions import RunCancelled
+from pydantic_ai.messages import ModelRequest, UserPromptPart
+from pydantic_ai.ui.vercel_ai import VercelAIAdapter
+from starlette.responses import Response, StreamingResponse
+
+from app.agent.factory import build_run_kwargs, get_agent
+from app.agent.models import ProviderNotConfigured, UnknownProviderError
+from app.api.deps import StoreDep
+from app.config import load_settings, resolve_model_name
+from app.db import ChatStore
+from app.db.app_tables import ChatSummary
+
+if TYPE_CHECKING:
+    from pydantic_ai.messages import ModelMessage
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/api", tags=["chat"])
+
+SDK_VERSION = 7
+"""Pinned Vercel AI wire version — matches the app's ``ai@7`` / ``@ai-sdk/react@4``."""
+
+TITLE_MAX_CHARS = 40
+"""Auto-titles are the first user prompt truncated to about this many characters."""
+
+NEW_CHAT_TITLE = "New chat"
+"""The default chat title that auto-naming replaces."""
+
+
+@router.post("/chat")
+async def stream_chat(request: Request, store: StoreDep) -> Response:
+    """Stream one agent run as a Vercel AI UI Message Stream (SSE).
+
+    Reads the chat ``id`` off the request body (Starlette caches the body, so
+    ``dispatch_request`` re-reading it for validation is free), resolves the
+    chat + workspace rows into per-run kwargs, then hands the whole request to
+    ``VercelAIAdapter.dispatch_request``, which owns run lifecycle and history
+    persistence (``conversation_store`` + ``conversation_scope``).
+    """
+    chat_id = await _chat_id(request)
+    chat = await store.get_chat(chat_id)
+    if chat is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Chat not found"
+        )
+    workspace = await store.get_workspace(chat.workspace_id)
+    if workspace is None:  # unreachable while the FK cascade holds; kept defensive
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found"
+        )
+
+    run_settings = await _run_settings(store, chat)
+    try:
+        run_kwargs = build_run_kwargs(run_settings, workspace)
+    except ProviderNotConfigured as error:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED, detail=str(error)
+        ) from error
+    except UnknownProviderError as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)
+        ) from error
+
+    token = CancellationToken()
+    tokens = request.app.state.cancellation_tokens
+    tokens[chat_id] = token
+
+    response = await VercelAIAdapter.dispatch_request(
+        request,
+        agent=get_agent(),
+        sdk_version=SDK_VERSION,
+        conversation_id=chat_id,
+        conversation_store=store,
+        conversation_scope=chat.workspace_id,
+        cancellation_token=token,
+        on_complete=_on_run_end(store, chat),
+        on_cancel=_on_run_cancelled(store, chat),
+        **run_kwargs,
+    )
+    if isinstance(response, StreamingResponse):
+        # The run finishes while the body streams, so token cleanup wraps the
+        # iterator: it fires on success, cancel, mid-stream error, and disconnect.
+        response.body_iterator = _release_token(
+            response.body_iterator, tokens, chat_id, token
+        )
+    else:
+        # A pre-run error response (validation, conversation lookup): no run
+        # ever started, so release the token immediately.
+        tokens.pop(chat_id, None)
+    return response
+
+
+@router.post("/chats/{chat_id}/stop")
+async def stop_chat(chat_id: str, request: Request) -> dict[str, str]:
+    """Request cancellation of the chat's live run; 404 when nothing is running."""
+    token = request.app.state.cancellation_tokens.get(chat_id)
+    if token is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No run in progress for this chat",
+        )
+    token.cancel()
+    return {"status": "cancel_requested"}
+
+
+async def _chat_id(request: Request) -> str:
+    """The chat id from the body's top-level ``id`` field, or a 422.
+
+    ``await request.json()`` caches the raw body on the request, so the
+    adapter's own ``request.body()`` read inside ``dispatch_request`` still sees
+    the full payload and does the authoritative ``RequestData`` validation.
+    """
+    try:
+        body = await request.json()
+    except ValueError as exc:  # JSONDecodeError and UnicodeDecodeError
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Request body must be a JSON object",
+        ) from exc
+    chat_id = body.get("id") if isinstance(body, dict) else None
+    if not isinstance(chat_id, str) or not chat_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Request body must include the chat `id`",
+        )
+    return chat_id
+
+
+async def _run_settings(store: ChatStore, chat: ChatSummary) -> dict[str, Any]:
+    """The ``chat_settings`` mapping ``build_run_kwargs`` consumes.
+
+    App settings come first — the KV table stores strings, so JSON-typed values
+    (the allow/deny lists) decode back while plain scalars pass through. The
+    resolved ``provider:model`` spec and the ``chat_id`` (which scopes the
+    ``Planning`` store) overlay them. A future per-workspace permission profile
+    merges here, between global settings and the chat's own fields.
+    """
+    settings: dict[str, Any] = {
+        key: _decode_setting(value)
+        for key, value in (await load_settings(store)).items()
+    }
+    settings["model"] = await resolve_model_name(chat, store)
+    settings["chat_id"] = chat.id
+    return settings
+
+
+def _decode_setting(value: str) -> Any:
+    """JSON-decode a settings value when it parses (lists, bools); else keep the raw string."""
+    try:
+        return json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        return value
+
+
+def _on_run_end(store: ChatStore, chat: ChatSummary):
+    """``on_complete``: auto-title the chat from its first prompt and bump activity.
+
+    The ``conversation_store`` already saved the run before this fires (the
+    adapter wraps ``on_complete`` around ``_save_conversation``), so the only
+    work left is chat metadata.
+    """
+
+    async def complete(result: AgentRunResult[Any]) -> None:
+        await _maybe_set_title(store, chat.id, result.all_messages())
+        await store.touch_chat(chat.id)
+
+    return complete
+
+
+def _on_run_cancelled(store: ChatStore, chat: ChatSummary):
+    """``on_cancel``: persist the partial turn, then same metadata as a completed run.
+
+    ``_saving_conversation`` only saves on ``AgentRunResultEvent``, which a
+    cancelled run never emits — without this the stopped turn would vanish.
+    """
+
+    async def cancelled(cancelled_run: RunCancelled) -> None:
+        await _persist_partial(store, chat, cancelled_run)
+        await _maybe_set_title(store, chat.id, cancelled_run.all_messages())
+        await store.touch_chat(chat.id)
+
+    return cancelled
+
+
+async def _persist_partial(
+    store: ChatStore, chat: ChatSummary, cancelled_run: RunCancelled
+) -> None:
+    """Save what a cancelled run completed before the token fired.
+
+    ``cancelled_run.all_messages()`` is the resumable history — stored prefix
+    plus whatever the run produced. Reusing the stored record's revision keeps
+    the save CAS-checked; ``save`` compares by content and appends only the
+    tail, so a no-progress cancel stores nothing.
+    """
+    messages = cancelled_run.all_messages()
+    if not messages:
+        return
+    loaded = await store.load(chat.id, scope=chat.workspace_id)
+    if loaded is None:
+        conversation = Conversation(
+            messages=list(messages),
+            usage=cancelled_run.usage,
+            conversation_id=chat.id,
+        )
+    else:
+        loaded.messages = list(messages)
+        loaded.usage = loaded.usage + cancelled_run.usage
+        conversation = loaded
+    try:
+        await store.save(conversation, scope=chat.workspace_id)
+    except ConversationConflict:
+        logger.warning("Partial state for chat %s not saved: store conflict", chat.id)
+    except Exception:
+        logger.exception("Partial state for chat %s not saved", chat.id)
+
+
+async def _maybe_set_title(
+    store: ChatStore, chat_id: str, messages: list[ModelMessage]
+) -> None:
+    """Name an untitled chat after its first user prompt, truncated to ~40 chars.
+
+    Re-reads the row so a rename done while the run was live isn't clobbered.
+    """
+    current = await store.get_chat(chat_id)
+    if current is None or current.title != NEW_CHAT_TITLE:
+        return
+    title = _first_user_text(messages)
+    if title:
+        await store.rename_chat(chat_id, title)
+
+
+def _first_user_text(messages: list[ModelMessage]) -> str | None:
+    """First user prompt text in the history, whitespace-collapsed and truncated."""
+    for message in messages:
+        if not isinstance(message, ModelRequest):
+            continue
+        for part in message.parts:
+            if isinstance(part, UserPromptPart) and isinstance(part.content, str):
+                text = " ".join(part.content.split())
+                if not text:
+                    continue
+                if len(text) > TITLE_MAX_CHARS:
+                    text = text[:TITLE_MAX_CHARS].rstrip() + "…"
+                return text
+    return None
+
+
+async def _release_token(
+    stream: AsyncIterator[str],
+    tokens: dict[str, CancellationToken],
+    chat_id: str,
+    token: CancellationToken,
+) -> AsyncIterator[str]:
+    """Pass SSE chunks through, then drop the run's token however the stream ends.
+
+    Guards the pop with identity so a token a newer run registered for the same
+    chat is never removed underneath it.
+    """
+    try:
+        async for chunk in stream:
+            yield chunk
+    finally:
+        if tokens.get(chat_id) is token:
+            tokens.pop(chat_id, None)
