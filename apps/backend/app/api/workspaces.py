@@ -31,7 +31,12 @@ async def create_workspace(body: WorkspaceCreate, store: StoreDep) -> WorkspaceO
 async def patch_workspace(
     workspace_id: str, body: WorkspacePatch, store: StoreDep
 ) -> WorkspaceOut:
-    """Update ``display_name`` and/or ``last_chat_id`` (explicit ``null`` clears it)."""
+    """Update ``display_name``/``last_chat_id``/``permission_profile``.
+
+    ``last_chat_id`` and ``permission_profile`` take explicit ``null`` to clear
+    (the latter falling back to the global permission setting); values are
+    schema-validated to the four profiles.
+    """
     workspace = await store.get_workspace(workspace_id)
     if workspace is None:
         raise HTTPException(
@@ -48,6 +53,10 @@ async def patch_workspace(
                     detail="last_chat_id must name a chat in this workspace",
                 )
         await store.set_last_chat(workspace_id, body.last_chat_id)
+    if "permission_profile" in body.model_fields_set:
+        await store.set_workspace_permission_profile(
+            workspace_id, body.permission_profile
+        )
     # Re-read after the updates; fall back to the earlier row (single-process store).
     workspace = await store.get_workspace(workspace_id) or workspace
     chats = await store.list_chats(workspace_id)

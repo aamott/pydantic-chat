@@ -8,14 +8,16 @@
  * (backend `GET /api/chat/{id}/stream` isn't implemented yet) and the
  * transport degrades that to "nothing to resume" rather than an error.
  */
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useChat } from '@ai-sdk/react'
 import { APICallError } from 'ai'
 import { AlertCircle, FolderOpen, Settings, X } from 'lucide-react'
 import { getChat, useChatsStore } from '../../stores/chats'
 import type { AppChat } from '../../lib/transport'
+import { asRunMeta, latestDataPart } from '../../lib/dataParts'
 import { MessageList } from './MessageList'
 import { Composer } from './Composer'
+import { RunMetaBadge } from './RunMetaBadge'
 
 export function ChatPanel(): React.JSX.Element {
   const activeChatId = useChatsStore((s) => s.activeChatId)
@@ -87,8 +89,15 @@ export function ChatPanel(): React.JSX.Element {
 function ChatView({ chat }: { chat: AppChat }): React.JSX.Element {
   const stopActive = useChatsStore((s) => s.stopActive)
   const refreshWorkspaces = useChatsStore((s) => s.refreshWorkspaces)
-  const { messages, status, error, sendMessage, regenerate, clearError } =
-    useChat({ chat, resume: true })
+  const {
+    messages,
+    status,
+    error,
+    sendMessage,
+    regenerate,
+    clearError,
+    addToolApprovalResponse,
+  } = useChat({ chat, resume: true })
 
   /* Run end (streaming → ready) is when the server auto-title lands —
    * refresh the workspace list so renamed chats show up. */
@@ -101,9 +110,25 @@ function ChatView({ chat }: { chat: AppChat }): React.JSX.Element {
     }
   }, [status, refreshWorkspaces])
 
+  /* Effective profile + model for the run, announced as the stream's first
+   * `data-run-meta` chunk (stream-only → absent on reloaded transcripts). */
+  const runMeta = useMemo(
+    () => latestDataPart(messages, 'run-meta', asRunMeta),
+    [messages],
+  )
+
   return (
     <>
-      <MessageList messages={messages} status={status} />
+      {runMeta && (
+        <div className="flex h-8 shrink-0 items-center justify-end border-b border-neutral-200 px-3">
+          <RunMetaBadge meta={runMeta} />
+        </div>
+      )}
+      <MessageList
+        messages={messages}
+        status={status}
+        onApprovalResponse={addToolApprovalResponse}
+      />
       {error && (
         <ChatError
           error={error}

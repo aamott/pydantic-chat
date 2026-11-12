@@ -2,10 +2,21 @@
  * Transcript view: user bubbles right-aligned, assistant parts full-width on
  * the left. Auto-scroll sticks to the bottom while streaming but releases
  * the moment the user scrolls up (and re-engages when they scroll back).
+ *
+ * Consecutive `approval-requested` tool parts render as one `ApprovalGroup`
+ * card — the agent often defers several calls in a single step. Buttons are
+ * disabled while a run is live because `addToolApprovalResponse` only
+ * auto-resubmits when the chat isn't streaming.
  */
 import { useEffect, useRef } from 'react'
 import type { ChatStatus, UIMessage } from 'ai'
+import { transcriptParts } from '../../lib/dataParts'
 import { MessagePart } from './MessagePart'
+import {
+  ApprovalGroup,
+  groupApprovals,
+  type ApprovalResponder,
+} from './ApprovalCard'
 
 /** Pixels from the bottom that still count as "at the bottom". */
 const STICK_THRESHOLD_PX = 48
@@ -13,14 +24,18 @@ const STICK_THRESHOLD_PX = 48
 interface MessageListProps {
   messages: UIMessage[]
   status: ChatStatus
+  /** `useChat`'s `addToolApprovalResponse`, threaded to approval cards. */
+  onApprovalResponse: ApprovalResponder
 }
 
 export function MessageList({
   messages,
   status,
+  onApprovalResponse,
 }: MessageListProps): React.JSX.Element {
   const scrollRef = useRef<HTMLDivElement>(null)
   const stickToBottom = useRef(true)
+  const busy = status === 'submitted' || status === 'streaming'
 
   // Follow the stream only while the user hasn't scrolled away.
   useEffect(() => {
@@ -48,7 +63,12 @@ export function MessageList({
       ) : (
         <div className="mx-auto flex max-w-3xl flex-col gap-4">
           {messages.map((message) => (
-            <MessageRow key={message.id} message={message} />
+            <MessageRow
+              key={message.id}
+              message={message}
+              onApprovalResponse={onApprovalResponse}
+              approvalsDisabled={busy}
+            />
           ))}
           {status === 'submitted' && (
             <p className="text-xs text-neutral-400">Waiting for response…</p>
@@ -59,13 +79,26 @@ export function MessageList({
   )
 }
 
-function MessageRow({ message }: { message: UIMessage }): React.JSX.Element {
+function MessageRow({
+  message,
+  onApprovalResponse,
+  approvalsDisabled,
+}: {
+  message: UIMessage
+  onApprovalResponse: ApprovalResponder
+  approvalsDisabled: boolean
+}): React.JSX.Element {
+  // Dedicated surfaces own some data parts: `data-shell` → Terminal tab,
+  // `data-run-meta` → header badge, and only the latest `data-plan`
+  // snapshot per message is worth a card (see transcriptParts).
+  const parts = transcriptParts(message.parts)
+
   if (message.role === 'user') {
-    const text = message.parts
+    const text = parts
       .filter((p) => p.type === 'text')
       .map((p) => p.text)
       .join('')
-    const otherParts = message.parts.filter((p) => p.type !== 'text')
+    const otherParts = parts.filter((p) => p.type !== 'text')
     return (
       <div className="flex flex-col items-end gap-1">
         {text && (
@@ -75,7 +108,11 @@ function MessageRow({ message }: { message: UIMessage }): React.JSX.Element {
         )}
         {otherParts.map((part, i) => (
           <div key={i} className="max-w-[85%]">
-            <MessagePart part={part} />
+            <MessagePart
+              part={part}
+              onApprovalResponse={onApprovalResponse}
+              approvalsDisabled={approvalsDisabled}
+            />
           </div>
         ))}
       </div>
@@ -84,12 +121,24 @@ function MessageRow({ message }: { message: UIMessage }): React.JSX.Element {
 
   return (
     <div className="text-sm text-neutral-800">
-      {message.parts.map((part, i) => (
-        <MessagePart key={i} part={part} />
-      ))}
-      {message.parts.length === 0 && (
-        <span className="text-neutral-400">…</span>
+      {groupApprovals(parts).map((group, i) =>
+        group.kind === 'approvals' ? (
+          <ApprovalGroup
+            key={i}
+            parts={group.parts}
+            onRespond={onApprovalResponse}
+            disabled={approvalsDisabled}
+          />
+        ) : (
+          <MessagePart
+            key={i}
+            part={group.part}
+            onApprovalResponse={onApprovalResponse}
+            approvalsDisabled={approvalsDisabled}
+          />
+        ),
       )}
+      {parts.length === 0 && <span className="text-neutral-400">…</span>}
     </div>
   )
 }

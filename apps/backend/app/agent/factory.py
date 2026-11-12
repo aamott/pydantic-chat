@@ -39,6 +39,7 @@ from pydantic_ai_harness.filesystem import FileSystem
 from pydantic_ai_harness.repo_context import RepoContext
 from pydantic_ai_harness.shell import Shell
 
+from app.agent.events import install_ui_event_bridge, run_meta_hooks
 from app.agent.models import ProviderNotConfigured, resolve_model
 from app.config import DEFAULT_MODEL, DEFAULT_PERMISSION_PROFILE, data_dir
 
@@ -60,6 +61,18 @@ SMART_DEFAULT_JUDGE = "anthropic:claude-haiku-4-5"
 
 APPROVAL_RISK_QUESTION = "Could this call destroy data, spend money, or leak secrets?"
 """Yes/no question ``ApprovalReviewer`` asks; ``no`` auto-approves the call."""
+
+FILE_LINK_INSTRUCTIONS = (
+    "When you mention a file in the workspace, link it as [name](file:relative/path) "
+    "— append :LINE for a specific line, e.g. [src/app.py](file:src/app.py:12). "
+    "Always use workspace-relative POSIX paths, never absolute or file:/// URLs."
+)
+"""System-prompt guidance for `file:` links — matches the renderer's interceptor.
+
+The frontend (``MessagePart.tsx``) intercepts ``file:`` hrefs and parses
+``file:path`` or ``file:path:line``; paths resolve against the chat's workspace
+root, so absolute paths and ``#L`` fragments are not understood.
+"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,6 +225,9 @@ _AGENT: Agent[None, str] = Agent(
 )
 """One shared ``Agent``; model and capabilities arrive per run."""
 
+install_ui_event_bridge(_AGENT)
+"""Bridge capability events (plan changes, shell progress) into `data-*` chunks."""
+
 
 def get_agent() -> Agent[None, str]:
     """The shared agent — minimal instructions; ``Coder`` brings its own per run."""
@@ -254,11 +270,18 @@ def build_run_kwargs(
         LocalWorkspace(root, read_only=read_only),
         *resolve_permission_capabilities(profile, lists, judge_model=judge_model),
         _planning_capability(_setting(chat_settings, "chat_id")),
+        # Emits the `data-run-meta` chunk so the UI can badge the effective
+        # (post-workspace-override) profile from the stream's first events.
+        run_meta_hooks(profile, model_spec),
     ]
 
     return {
         "model": resolve_model(model_spec),
         "capabilities": capabilities,
+        # Run-level instructions append to the agent's own and every
+        # capability's, so the `file:`-link guidance reaches the model under
+        # every profile — including `read-only`, which builds no `Coder`.
+        "instructions": FILE_LINK_INSTRUCTIONS,
         # Explicit backend pins the run's workspace so a stale WorkspaceRef in
         # history can't redirect file access elsewhere on the host.
         "workspace": LocalWorkspaceBackend(root),

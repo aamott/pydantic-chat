@@ -58,4 +58,8 @@ MIGRATIONS: tuple[str, ...] = (
         value TEXT NOT NULL
     );
     """,
+    # Per-workspace permission-profile override; NULL inherits the global setting.
+    """
+    ALTER TABLE workspaces ADD COLUMN permission_profile TEXT;
+    """,
 )

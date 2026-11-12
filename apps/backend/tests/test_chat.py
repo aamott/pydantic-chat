@@ -14,6 +14,7 @@ from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.models.test import TestModel
 
 from app.agent.models import ProviderNotConfigured, UnknownProviderError
+from app.api.chat import _run_settings
 from app.main import create_app
 
 TOKEN = "test-token"
@@ -76,6 +77,7 @@ def test_chat_requires_auth(client):
     test_client, _ = client
     assert test_client.post("/api/chat", json={}).status_code == 401
     assert test_client.post("/api/chats/x/stop").status_code == 401
+    assert test_client.get("/api/chat/x/stream").status_code == 401
 
 
 def test_chat_streams_sse_and_persists(client):
@@ -147,6 +149,59 @@ def test_chat_unknown_chat_404(client):
     assert response.status_code == 404
 
 
+def test_stream_replay_after_completed_run(client):
+    """After a run completes, GET stream replays the stored response as SSE."""
+    test_client, tmp_path = client
+    workspace = _create_workspace(test_client, tmp_path)
+    chat = _create_chat(test_client, workspace["id"])
+
+    response = test_client.post(
+        "/api/chat", json=_chat_payload(chat["id"]), headers=AUTH
+    )
+    assert response.status_code == 200
+
+    replay = test_client.get(f"/api/chat/{chat['id']}/stream", headers=AUTH)
+    assert replay.status_code == 200
+    assert replay.headers["x-vercel-ai-ui-message-stream"] == "v1"
+    assert replay.headers["content-type"].startswith("text/event-stream")
+
+    events = _sse_events(replay.text)
+    types = [event["type"] for event in events]
+    assert types[0] == "start"
+    assert "text-delta" in types
+    assert types[-1] == "finish"
+
+    text = "".join(
+        event.get("delta", "") for event in events if event["type"] == "text-delta"
+    )
+    assert "hi there" in text
+
+    # The replayed message id is the one the transcript dump assigns, so a
+    # client replaces its seeded message instead of appending a duplicate.
+    stored = test_client.get(
+        f"/api/chats/{chat['id']}/messages", headers=AUTH
+    ).json()
+    assistant_id = next(m["id"] for m in stored if m["role"] == "assistant")
+    assert events[0]["messageId"] == assistant_id
+
+
+def test_stream_replay_404s(client):
+    """Unknown chats, and known chats with nothing stored, return 404."""
+    test_client, tmp_path = client
+    assert (
+        test_client.get("/api/chat/no-such-chat/stream", headers=AUTH).status_code
+        == 404
+    )
+
+    workspace = _create_workspace(test_client, tmp_path)
+    chat = _create_chat(test_client, workspace["id"])
+    # Chat exists but no run has persisted a conversation yet.
+    assert (
+        test_client.get(f"/api/chat/{chat['id']}/stream", headers=AUTH).status_code
+        == 404
+    )
+
+
 def test_chat_bad_body_422(client):
     test_client, _ = client
     # Valid JSON but no `id` field.
@@ -200,6 +255,95 @@ def test_stop_without_run_404(client):
     chat = _create_chat(test_client, workspace["id"])
     response = test_client.post(f"/api/chats/{chat['id']}/stop", headers=AUTH)
     assert response.status_code == 404
+
+
+async def test_run_settings_workspace_profile_override(tmp_path, monkeypatch):
+    """A workspace's permission_profile beats the global; NULL inherits it."""
+    monkeypatch.setenv("APP_DATA_DIR", str(tmp_path / "data"))
+    from app.db.store import ChatStore
+
+    store = ChatStore(tmp_path / "app.db")
+    try:
+        workspace = await store.get_or_create_workspace(tmp_path / "ws")
+        chat = await store.create_chat(workspace.id)
+        await store.set_setting("permission_profile", "manual")
+
+        settings = await _run_settings(store, chat, workspace)
+        assert settings["permission_profile"] == "manual"
+
+        await store.set_workspace_permission_profile(workspace.id, "bypass")
+        workspace = await store.get_workspace(workspace.id)
+        settings = await _run_settings(store, chat, workspace)
+        assert settings["permission_profile"] == "bypass"
+    finally:
+        store.close()
+
+
+def test_plan_shell_and_run_meta_data_chunks(client, monkeypatch):
+    """Tool calls surface `data-plan`/`data-shell` chunks; `data-run-meta` opens the run."""
+    test_client, tmp_path = client
+    workspace = _create_workspace(test_client, tmp_path)
+    # `bypass` lets the tools execute without approval — and exercises the
+    # workspace override end to end (run-meta must report it, not the default).
+    patched = test_client.patch(
+        f"/api/workspaces/{workspace['id']}",
+        json={"permission_profile": "bypass"},
+        headers=AUTH,
+    )
+    assert patched.status_code == 200
+    chat = _create_chat(test_client, workspace["id"])
+
+    from pydantic_ai.models.function import DeltaToolCall
+
+    calls = {"count": 0}
+
+    async def stream_fn(messages, info):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            yield {
+                0: DeltaToolCall(
+                    name="write_plan",
+                    json_args='{"items": [{"content": "ship the feature"}]}',
+                )
+            }
+        elif calls["count"] == 2:
+            yield {
+                0: DeltaToolCall(
+                    name="shell",
+                    json_args='{"command": "echo hello-shell"}',
+                )
+            }
+        else:
+            yield "all done"
+
+    monkeypatch.setattr(
+        "app.agent.factory.resolve_model",
+        lambda spec: FunctionModel(stream_function=stream_fn),
+    )
+    response = test_client.post(
+        "/api/chat", json=_chat_payload(chat["id"]), headers=AUTH
+    )
+    assert response.status_code == 200
+
+    events = _sse_events(response.text)
+    meta = [e for e in events if e["type"] == "data-run-meta"]
+    assert meta, "data-run-meta chunk missing from stream"
+    assert meta[0]["data"]["permission_profile"] == "bypass"
+
+    plans = [e for e in events if e["type"] == "data-plan"]
+    assert plans, "write_plan produced no data-plan chunk"
+    snapshot = plans[-1]["data"]
+    assert snapshot["tasks"][0]["content"] == "ship the feature"
+    assert snapshot["tasks"][0]["status"] == "pending"
+
+    shells = [e["data"] for e in events if e["type"] == "data-shell"]
+    phases = [data["phase"] for data in shells]
+    assert phases == ["started", *["output"] * (len(phases) - 2), "finished"]
+    started = shells[0]
+    assert started["command"] == "echo hello-shell"
+    assert started["tool_call_id"]
+    output_text = "".join(data["text"] or "" for data in shells)
+    assert "hello-shell" in output_text
 
 
 def test_stop_cancels_run_and_saves_partial(client, monkeypatch):

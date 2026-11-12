@@ -40,6 +40,8 @@ class Workspace:
     last_chat_id: str | None
     created_at: int  # unix ms
     last_opened_at: int  # unix ms
+    permission_profile: str | None
+    """Per-workspace permission override; ``None`` inherits the global setting."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,7 +104,7 @@ class AppTablesMixin:
                 ),
             )
             row = self._conn.execute(
-                "SELECT id, path, display_name, last_chat_id, created_at, last_opened_at "
+                "SELECT id, path, display_name, last_chat_id, created_at, last_opened_at, permission_profile "
                 "FROM workspaces WHERE path = ?",
                 (normalized,),
             ).fetchone()
@@ -114,7 +116,7 @@ class AppTablesMixin:
 
     def _get_workspace(self, workspace_id: str) -> Workspace | None:
         row = self._conn.execute(
-            "SELECT id, path, display_name, last_chat_id, created_at, last_opened_at "
+            "SELECT id, path, display_name, last_chat_id, created_at, last_opened_at, permission_profile "
             "FROM workspaces WHERE id = ?",
             (workspace_id,),
         ).fetchone()
@@ -126,7 +128,7 @@ class AppTablesMixin:
 
     def _list_workspaces(self) -> list[WorkspaceSummary]:
         workspaces = self._conn.execute(
-            "SELECT id, path, display_name, last_chat_id, created_at, last_opened_at "
+            "SELECT id, path, display_name, last_chat_id, created_at, last_opened_at, permission_profile "
             "FROM workspaces ORDER BY last_opened_at DESC, id"
         ).fetchall()
         chats = self._conn.execute(
@@ -177,6 +179,25 @@ class AppTablesMixin:
             self._conn.execute(
                 "UPDATE workspaces SET last_chat_id = ? WHERE id = ?",
                 (chat_id, workspace_id),
+            )
+
+    async def set_workspace_permission_profile(
+        self, workspace_id: str, profile: str | None
+    ) -> None:
+        """Set (or clear, with ``None``) a workspace's permission-profile override.
+
+        ``None`` writes ``NULL``, so runs on the workspace inherit the global
+        ``permission_profile`` setting again.
+        """
+        await self._run(self._set_workspace_permission_profile, workspace_id, profile)
+
+    def _set_workspace_permission_profile(
+        self, workspace_id: str, profile: str | None
+    ) -> None:
+        with self._conn:
+            self._conn.execute(
+                "UPDATE workspaces SET permission_profile = ? WHERE id = ?",
+                (profile, workspace_id),
             )
 
     # ------------------------------------------------------------------
@@ -354,6 +375,7 @@ class AppTablesMixin:
             last_chat_id=row[3],
             created_at=row[4],
             last_opened_at=row[5],
+            permission_profile=row[6],
         )
 
     @staticmethod

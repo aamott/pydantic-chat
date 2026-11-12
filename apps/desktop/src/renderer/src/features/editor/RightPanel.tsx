@@ -1,8 +1,8 @@
 /**
  * Right-hand tool panel: tab strip (File / Explorer / Diff / Terminal) above
  * the active tab body. The File tab hosts the read-only `FileViewer`, the
- * Explorer tab hosts `FileExplorer`; Diff/Terminal bodies are placeholders
- * filled in by later stories.
+ * Explorer tab hosts `FileExplorer`, the Diff tab hosts `DiffPanel`, and the
+ * Terminal tab hosts `TerminalView` (live `shell` tool output).
  */
 import {
   FileCode,
@@ -13,8 +13,10 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { useUiStore, type RightPanelTab } from '../../stores/ui'
+import { DiffPanel } from './DiffPanel'
 import { FileExplorer } from './FileExplorer'
 import { FileViewer } from './FileViewer'
+import { TerminalView } from './TerminalView'
 
 const TABS: { id: RightPanelTab; label: string; icon: LucideIcon }[] = [
   { id: 'file', label: 'File', icon: FileCode },
@@ -80,20 +82,8 @@ export function RightPanel({ workspaceId }: RightPanelProps): React.JSX.Element 
             />
           ))}
         {activeTab === 'explorer' && <FileExplorer workspaceId={workspaceId} />}
-        {activeTab === 'diff' && (
-          <Placeholder
-            icon={GitCompareArrows}
-            title="Diff"
-            note="Agent edit diffs land in a later story."
-          />
-        )}
-        {activeTab === 'terminal' && (
-          <Placeholder
-            icon={SquareTerminal}
-            title="Terminal"
-            note="Shell output lands in a later story."
-          />
-        )}
+        {activeTab === 'diff' && <DiffPanel />}
+        {activeTab === 'terminal' && <TerminalView />}
       </div>
     </div>
   )

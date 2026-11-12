@@ -7,10 +7,11 @@
  * `DefaultChatTransport` pointed at the URL works as-is, with only the
  * per-launch bearer token added.
  *
- * Stream resume: the SDK reconnects via `GET {api}/{chat_id}/stream`. The
- * backend does not serve that route yet (tracked as a gap), so 404s on
- * reconnect are treated as "nothing to resume" instead of surfacing a
- * spurious error on every chat mount.
+ * Stream resume: the SDK reconnects via `GET {api}/{chat_id}/stream`, which
+ * the backend serves as a replay of the last persisted assistant response
+ * (a completed UI message stream). 404s on reconnect — unknown chat or
+ * nothing persisted yet — are treated as "nothing to resume" instead of
+ * surfacing a spurious error on every chat mount.
  */
 import { Chat } from '@ai-sdk/react'
 import {
@@ -66,8 +67,8 @@ export function makeChat(chatId: string, messages?: UIMessage[]): AppChat {
     id: chatId,
     transport: makeTransport(),
     messages,
-    // Inert until the approval UI lands (it only fires once the user
-    // submits `addToolApprovalResponse`s), then resubmits answered runs.
+    // Resubmit once the approval cards (features/chat/ApprovalCard.tsx) have
+    // answered every pending request on the last assistant step.
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
   })
 }

@@ -22,6 +22,12 @@ brand-new chat streams fine.
 ``CancellationToken`` registered on ``app.state.cancellation_tokens``. Client
 disconnect does NOT fire ``on_cancel`` (external ``CancelledError`` never
 becomes ``RunCancelled``), so the explicit stop route is the user's halt button.
+
+``GET /api/chat/{chat_id}/stream`` is the resume route the SDK's
+``DefaultChatTransport.reconnectToStream`` calls (``useChat({resume: true})``).
+The adapter exposes no in-flight event buffer to attach to, so it replays the
+last *persisted* assistant response as a completed UI message stream — see the
+route's docstring for the mechanics and the v1 limitation.
 """
 
 from __future__ import annotations
@@ -36,8 +42,27 @@ from pydantic_ai import AgentRunResult, CancellationToken
 from pydantic_ai.conversation import Conversation
 from pydantic_ai.conversation_store import ConversationConflict
 from pydantic_ai.exceptions import RunCancelled
-from pydantic_ai.messages import ModelRequest, UserPromptPart
-from pydantic_ai.ui.vercel_ai import VercelAIAdapter
+from pydantic_ai.messages import (
+    FunctionToolCallEvent,
+    FunctionToolResultEvent,
+    ModelRequest,
+    ModelResponse,
+    PartEndEvent,
+    PartStartEvent,
+    ToolCallPart,
+    ToolReturnPart,
+    UserPromptPart,
+)
+from pydantic_ai.ui import NativeEvent
+from pydantic_ai.ui.vercel_ai import VercelAIAdapter, VercelAIEventStream
+from pydantic_ai.ui.vercel_ai._utils import dump_message_metadata
+from pydantic_ai.ui.vercel_ai.response_types import (
+    BaseChunk,
+    FinishChunk,
+    FinishReason,
+    MessageMetadataChunk,
+    ToolApprovalRequestChunk,
+)
 from starlette.responses import Response, StreamingResponse
 
 from app.agent.factory import build_run_kwargs, get_agent
@@ -45,7 +70,7 @@ from app.agent.models import ProviderNotConfigured, UnknownProviderError
 from app.api.deps import StoreDep
 from app.config import load_settings, resolve_model_name
 from app.db import ChatStore
-from app.db.app_tables import ChatSummary
+from app.db.app_tables import ChatSummary, Workspace
 
 if TYPE_CHECKING:
     from pydantic_ai.messages import ModelMessage
@@ -86,7 +111,7 @@ async def stream_chat(request: Request, store: StoreDep) -> Response:
             status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found"
         )
 
-    run_settings = await _run_settings(store, chat)
+    run_settings = await _run_settings(store, chat, workspace)
     try:
         run_kwargs = build_run_kwargs(run_settings, workspace)
     except ProviderNotConfigured as error:
@@ -140,6 +165,199 @@ async def stop_chat(chat_id: str, request: Request) -> dict[str, str]:
     return {"status": "cancel_requested"}
 
 
+@router.get("/chat/{chat_id}/stream")
+async def replay_stream(chat_id: str, store: StoreDep) -> Response:
+    """Replay the chat's last persisted assistant response as a completed SSE stream.
+
+    ``DefaultChatTransport.reconnectToStream`` calls this route when a mounted
+    ``useChat({resume: true})`` chat wants to reattach. The transport's
+    ``resumeStreamIsReplay`` (its default) makes the client drop its streamed
+    message state on the first ``start`` chunk and rebuild the message keyed by
+    ``start.messageId``, so the wire contract is "the response from its
+    beginning", not "the chunks since disconnect".
+
+    What is replayed: the last ``ModelResponse`` in the stored conversation
+    that ``dump_messages`` renders, re-encoded through a standalone
+    ``VercelAIEventStream`` — the same transformer the live path uses — fed
+    with synthesized ``PartStartEvent``/``PartEndEvent``/``FunctionTool*Event``
+    events. ``start.messageId`` is the id ``dump_messages`` gives that response
+    over the full stored history, so the replayed message *replaces* the
+    transcript entry the client already seeded from ``GET .../messages``
+    instead of duplicating it. Each tool call gets ``args_valid=None``: the
+    streamer's documented resume path then backfills ``tool-input-available``
+    when the result chunk arrives, and an unanswered call is closed out with
+    the same ``tool-approval-request`` ``dump_messages`` implies.
+
+    v1 limitation: the adapter exposes no in-flight event buffer, so a run
+    still streaming returns the last *committed* turn — its in-progress output
+    is only persisted at completion (or on cancel), never mid-run. The client
+    keeps consistent history and never blocks; it just doesn't see the live
+    tail. True live reattach would take a per-chat tee buffer on the POST
+    stream, which the frontend can adopt later without this route changing.
+
+    404 when the chat is unknown, has no stored conversation, or has no
+    assistant response yet — the transport maps that to "nothing to resume".
+    """
+    chat = await store.get_chat(chat_id)
+    if chat is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Chat not found"
+        )
+    conversation = await store.load(chat_id, scope=chat.workspace_id)
+    if conversation is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Nothing to replay"
+        )
+    target = _replay_target(conversation.messages)
+    if target is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Nothing to replay"
+        )
+    index, response = target
+
+    # The start chunk's messageId must be the UIMessage id the client already
+    # seeded for this response — `dump_messages` over the whole conversation,
+    # same as `GET .../messages`, so the ids line up positionally.
+    ui_messages = VercelAIAdapter.dump_messages(
+        conversation.messages, sdk_version=SDK_VERSION
+    )
+    message_id = next(
+        (m.id for m in reversed(ui_messages) if m.role == "assistant"), None
+    )
+
+    stream = VercelAIEventStream(sdk_version=SDK_VERSION, server_message_id=message_id)
+    return stream.streaming_response(
+        _replay_chunks(
+            stream, response, _tool_returns(conversation.messages[index + 1 :])
+        )
+    )
+
+
+def _replay_target(
+    messages: list[ModelMessage],
+) -> tuple[int, ModelResponse] | None:
+    """Index and value of the last response that dumps as a UIMessage, or ``None``.
+
+    A response the dumper skips (no renderable parts) produces no transcript
+    message, so the replay target is the last one that *does* dump — which is
+    what the last assistant ``UIMessage`` in the full dump corresponds to.
+    """
+    for index in range(len(messages) - 1, -1, -1):
+        message = messages[index]
+        if isinstance(message, ModelResponse) and VercelAIAdapter.dump_messages(
+            [message], sdk_version=SDK_VERSION
+        ):
+            return index, message
+    return None
+
+
+def _tool_returns(messages: list[ModelMessage]) -> dict[str, ToolReturnPart]:
+    """Tool returns in ``messages``, keyed by ``tool_call_id`` (first wins)."""
+    returns: dict[str, ToolReturnPart] = {}
+    for message in messages:
+        if isinstance(message, ModelRequest):
+            for part in message.parts:
+                if (
+                    isinstance(part, ToolReturnPart)
+                    and part.tool_call_id not in returns
+                ):
+                    returns[part.tool_call_id] = part
+    return returns
+
+
+async def _replay_events(
+    response: ModelResponse, returns: dict[str, ToolReturnPart]
+) -> AsyncIterator[NativeEvent]:
+    """The native events a run emitted while producing ``response``.
+
+    Each part arrives whole: one ``PartStartEvent`` + ``PartEndEvent`` pair per
+    stored part — the start hook itself emits the part's content as a single
+    delta, so no ``PartDeltaEvent``s are needed. Tool calls then follow, as in
+    a live run: a ``FunctionToolCallEvent`` with ``args_valid=None`` (the call
+    doesn't execute on a replayed stream) and the stored ``FunctionToolResultEvent``
+    when the return is in history.
+    """
+    parts = response.parts
+    for index, part in enumerate(parts):
+        # `canonical_system` applies to a part when the part's provider is the
+        # response's — the same rule `StreamedResponse._part_canonical_system`
+        # uses when stamping live part events.
+        canonical = (
+            response.canonical_system
+            if part.provider_name == response.provider_name
+            else None
+        )
+        yield PartStartEvent(
+            index=index,
+            part=part,
+            previous_part_kind=parts[index - 1].part_kind if index else None,
+            canonical_system=canonical,
+        )
+        yield PartEndEvent(
+            index=index,
+            part=part,
+            next_part_kind=parts[index + 1].part_kind
+            if index + 1 < len(parts)
+            else None,
+            canonical_system=canonical,
+        )
+    for part in parts:
+        if isinstance(part, ToolCallPart):
+            yield FunctionToolCallEvent(part, args_valid=None)
+            if (result := returns.get(part.tool_call_id)) is not None:
+                yield FunctionToolResultEvent(result)
+
+
+async def _replay_chunks(
+    stream: VercelAIEventStream[Any, BaseChunk, Any, Any],
+    response: ModelResponse,
+    returns: dict[str, ToolReturnPart],
+) -> AsyncIterator[BaseChunk]:
+    """Protocol chunks for the replay, with the run-result chunks re-attached.
+
+    The synthesized event stream has no ``AgentRunResultEvent`` to synthesize
+    (no run exists), so the chunks ``handle_run_result`` would have emitted are
+    injected just before ``finish``: the response's ``message-metadata``, then
+    ``tool-approval-request`` for each call history never answered — the same
+    "no result found → approval-requested" rule ``dump_messages`` applies.
+    """
+    unanswered = [
+        part.tool_call_id
+        for part in response.parts
+        if isinstance(part, ToolCallPart) and part.tool_call_id not in returns
+    ]
+    async for chunk in stream.transform_stream(_replay_events(response, returns)):
+        if isinstance(chunk, FinishChunk):
+            yield MessageMetadataChunk(message_metadata=dump_message_metadata(response))
+            for tool_call_id in unanswered:
+                yield ToolApprovalRequestChunk(
+                    approval_id=tool_call_id, tool_call_id=tool_call_id
+                )
+            chunk = FinishChunk(
+                finish_reason=_replay_finish_reason(response, chunk.finish_reason)
+            )
+        yield chunk
+
+
+def _replay_finish_reason(
+    response: ModelResponse, fallback: FinishReason
+) -> FinishReason:
+    """The wire ``finishReason`` for the replayed response, mirroring ``handle_run_result``."""
+    if response.finish_reason is None:
+        return fallback
+    return _FINISH_REASONS.get(response.finish_reason, "other")
+
+
+_FINISH_REASONS: dict[str, FinishReason] = {
+    "stop": "stop",
+    "length": "length",
+    "content_filter": "content-filter",
+    "tool_call": "tool-calls",
+    "error": "error",
+}
+"""Pydantic → Vercel finish-reason map, as in ``VercelAIEventStream.handle_run_result``."""
+
+
 async def _chat_id(request: Request) -> str:
     """The chat id from the body's top-level ``id`` field, or a 422.
 
@@ -163,19 +381,23 @@ async def _chat_id(request: Request) -> str:
     return chat_id
 
 
-async def _run_settings(store: ChatStore, chat: ChatSummary) -> dict[str, Any]:
+async def _run_settings(
+    store: ChatStore, chat: ChatSummary, workspace: Workspace
+) -> dict[str, Any]:
     """The ``chat_settings`` mapping ``build_run_kwargs`` consumes.
 
     App settings come first — the KV table stores strings, so JSON-typed values
     (the allow/deny lists) decode back while plain scalars pass through. The
-    resolved ``provider:model`` spec and the ``chat_id`` (which scopes the
-    ``Planning`` store) overlay them. A future per-workspace permission profile
-    merges here, between global settings and the chat's own fields.
+    workspace's ``permission_profile`` then overrides the global value when set
+    (``NULL`` inherits), and the resolved ``provider:model`` spec plus the
+    ``chat_id`` (which scopes the ``Planning`` store) overlay everything.
     """
     settings: dict[str, Any] = {
         key: _decode_setting(value)
         for key, value in (await load_settings(store)).items()
     }
+    if workspace.permission_profile:
+        settings["permission_profile"] = workspace.permission_profile
     settings["model"] = await resolve_model_name(chat, store)
     settings["chat_id"] = chat.id
     return settings

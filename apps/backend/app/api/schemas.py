@@ -11,6 +11,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.agent.factory import PermissionProfile
 from app.db import ChatSummary, Workspace
 
 
@@ -43,6 +44,8 @@ class WorkspaceOut(BaseModel):
     path: str
     display_name: str
     last_chat_id: str | None
+    permission_profile: str | None
+    """Per-workspace permission override; ``None`` inherits the global setting."""
     created_at: int
     last_opened_at: int
     missing: bool
@@ -58,6 +61,7 @@ class WorkspaceOut(BaseModel):
             path=row.path,
             display_name=row.display_name,
             last_chat_id=row.last_chat_id,
+            permission_profile=row.permission_profile,
             created_at=row.created_at,
             last_opened_at=row.last_opened_at,
             missing=not Path(row.path).exists(),
@@ -74,12 +78,13 @@ class WorkspaceCreate(BaseModel):
 class WorkspacePatch(BaseModel):
     """``PATCH /api/workspaces/{id}`` body; unset fields are left alone.
 
-    ``last_chat_id`` uses ``model_fields_set`` at the route so an explicit ``null``
-    clears the pointer while an absent key keeps it.
+    ``last_chat_id`` and ``permission_profile`` use ``model_fields_set`` at the
+    route so an explicit ``null`` clears the value while an absent key keeps it.
     """
 
     display_name: str | None = Field(default=None, min_length=1)
     last_chat_id: str | None = None
+    permission_profile: PermissionProfile | None = None
 
 
 class ChatCreate(BaseModel):

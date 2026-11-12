@@ -21,8 +21,14 @@ interface UiState {
   filePath: string | null
   /** 1-based line anchor to scroll to in the File tab, or null. */
   line: number | null
+  /** Shell tool-call id the Terminal tab should scroll to (session-only). */
+  terminalTarget: string | null
   /** Open the panel on the File tab showing `path`, optionally scrolled to `line`. */
   openFile: (path: string, line?: number) => void
+  /** Open the panel on the Terminal tab, scrolled to `toolCallId`'s block. */
+  openTerminal: (toolCallId?: string) => void
+  /** Clear `terminalTarget` once the Terminal tab has consumed it. */
+  clearTerminalTarget: () => void
   /** Hide the right panel. */
   closePanel: () => void
   /** Flip panel visibility (Ctrl/Cmd+B + toolbar button). */
@@ -38,6 +44,7 @@ export const useUiStore = create<UiState>()(
       activeTab: 'file',
       filePath: null,
       line: null,
+      terminalTarget: null,
       openFile: (path, line) =>
         set({
           rightPanelOpen: true,
@@ -45,6 +52,13 @@ export const useUiStore = create<UiState>()(
           filePath: path,
           line: line ?? null,
         }),
+      openTerminal: (toolCallId) =>
+        set({
+          rightPanelOpen: true,
+          activeTab: 'terminal',
+          terminalTarget: toolCallId ?? null,
+        }),
+      clearTerminalTarget: () => set({ terminalTarget: null }),
       closePanel: () => set({ rightPanelOpen: false }),
       togglePanel: () => set((s) => ({ rightPanelOpen: !s.rightPanelOpen })),
       setTab: (tab) => set({ activeTab: tab }),

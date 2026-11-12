@@ -187,7 +187,13 @@ def test_build_run_kwargs_contents(tmp_path):
     set_secret("anthropic_api_key", "sk-ant-test")
 
     kwargs = build_run_kwargs(_chat_settings(), workspace)
-    assert set(kwargs) == {"model", "capabilities", "workspace", "usage_limits"}
+    assert set(kwargs) == {
+        "model",
+        "capabilities",
+        "instructions",
+        "workspace",
+        "usage_limits",
+    }
     assert isinstance(kwargs["model"], AnthropicModel)
     assert isinstance(kwargs["workspace"], LocalWorkspaceBackend)
     assert kwargs["workspace"].ref.id == str(workspace)
@@ -199,6 +205,18 @@ def test_build_run_kwargs_contents(tmp_path):
     assert any(isinstance(c, Coder) for c in capabilities)
     assert any(isinstance(c, Planning) for c in capabilities)
     assert any(isinstance(c, Permissions) for c in capabilities)
+
+
+def test_run_kwargs_carry_file_link_and_run_meta(tmp_path):
+    """`file:`-link instructions + the run-meta Hooks ride in every run."""
+    from pydantic_ai.capabilities import Hooks
+
+    set_secret("anthropic_api_key", "sk-ant-test")
+    kwargs = build_run_kwargs(_chat_settings(permission_profile="bypass"), tmp_path)
+    # The instruction names the exact wire spellings the renderer intercepts.
+    assert "file:" in kwargs["instructions"]
+    assert "file:src/app.py:12" in kwargs["instructions"]
+    assert any(isinstance(c, Hooks) for c in kwargs["capabilities"])
 
 
 def test_read_only_profile_has_no_shell(tmp_path):

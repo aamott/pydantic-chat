@@ -19,6 +19,7 @@ from pydantic_ai.messages import (
 from pydantic_ai.tools import DeferredToolRequests
 from pydantic_ai.usage import RunUsage
 
+from app.db.schema import MIGRATIONS
 from app.db.store import ChatStore
 
 TABLES = {
@@ -76,8 +77,14 @@ def test_schema_created(store):
             ).fetchall()
         }
         assert TABLES <= names
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+        # user_version tracks applied migrations, not a fixed number.
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == len(MIGRATIONS)
         assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+        # Migration 2 adds the per-workspace permission-profile override column.
+        workspace_cols = {
+            row[1] for row in conn.execute("PRAGMA table_info(workspaces)")
+        }
+        assert "permission_profile" in workspace_cols
     finally:
         conn.close()
     # foreign_keys is a per-connection pragma; check it on the store's own connection.

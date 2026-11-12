@@ -3,38 +3,102 @@
  *
  * One switch over the AI SDK part union: `text` → Streamdown (with `file:`
  * link interception into the right panel), `reasoning` → collapsible trace,
- * `tool-*`/`dynamic-tool` → collapsible tool card, `data-*` → JSON card,
- * `file`/`source-*` → minimal chips.
+ * `tool-*`/`dynamic-tool` → collapsible tool card (ToolCard.tsx), `data-*` →
+ * JSON card, `file`/`source-*` → minimal chips.
  *
- * Approval UX is a later story: the server emits `tool-approval-request`
- * stream chunks (sdk_version=7) which the SDK folds into tool-part
- * `approval-requested`/`approval-responded`/`output-denied` states — the
- * generic tool card renders those states with a badge for now.
+ * Approvals: `approval-requested` tool parts route to `ApprovalGroup`
+ * (MessageList groups consecutive ones); responded/denied states stay on the
+ * generic tool card, which surfaces the approval outcome + deny reason.
+ *
+ * Shared bits (Collapsible, Chip, JsonCard, stringify/truncate) live in
+ * partKit.tsx; the `file:` href grammar lives in lib/fileRefs.ts.
  */
-import { useState, type ReactNode } from 'react'
 import {
   isDataUIPart,
   isToolUIPart,
-  type DynamicToolUIPart,
   type FileUIPart,
   type ReasoningUIPart,
   type SourceDocumentUIPart,
   type SourceUrlUIPart,
   type TextUIPart,
-  type ToolUIPart,
-  type UIMessagePart,
   type UIDataTypes,
+  type UIMessagePart,
   type UITools,
 } from 'ai'
-import { Streamdown, type Components, type ExtraProps } from 'streamdown'
-import { ChevronRight, FileCode, Globe, Paperclip, Wrench } from 'lucide-react'
+import {
+  Streamdown,
+  defaultRehypePlugins,
+  type Components,
+  type ExtraProps,
+  type StreamdownProps,
+} from 'streamdown'
+import { FileCode, Globe, Paperclip } from 'lucide-react'
+import { parseFileHref } from '../../lib/fileRefs'
 import { useUiStore } from '../../stores/ui'
+import {
+  ApprovalGroup,
+  isPendingApproval,
+  type ApprovalResponder,
+} from './ApprovalCard'
+import { Chip, Collapsible, JsonCard } from './partKit'
+import { PlanCard } from './PlanCard'
+import { ToolCard } from './ToolCard'
 
 type Part = UIMessagePart<UIDataTypes, UITools>
 
-const OUTPUT_LINE_LIMIT = 50
+/*
+ * Streamdown's default rehype chain is [raw, rehype-sanitize(schema),
+ * rehype-harden]. rehype-harden hard-blocks the `file:` protocol in a
+ * `blockedProtocols` set no option can override — the model's
+ * `[x.ts](file:src/x.ts#L12)` links would render as inert "[blocked]" text
+ * before our `<a>` override ever sees them. So the chain is rebuilt
+ * without harden and with 'file' added to sanitize's href protocols.
+ * Sanitize still strips javascript:/data: and friends; safety isn't
+ * weakened because EVERY `file:` anchor is intercepted below
+ * (FileAwareLink) into a panel button — it can never navigate.
+ */
+const sanitizeEntry = defaultRehypePlugins.sanitize
+const sanitizePlugin = Array.isArray(sanitizeEntry)
+  ? sanitizeEntry[0]
+  : sanitizeEntry
+const sanitizeSchema = (
+  Array.isArray(sanitizeEntry) ? sanitizeEntry[1] : undefined
+) as { protocols?: { href?: string[] } } | undefined
 
-export function MessagePart({ part }: { part: Part }): React.JSX.Element | null {
+const rehypePlugins = [
+  defaultRehypePlugins.raw,
+  [
+    sanitizePlugin,
+    {
+      ...sanitizeSchema,
+      protocols: {
+        ...sanitizeSchema?.protocols,
+        href: [...(sanitizeSchema?.protocols?.href ?? []), 'file'],
+      },
+    },
+  ],
+] as NonNullable<StreamdownProps['rehypePlugins']>
+
+export function MessagePart({
+  part,
+  onApprovalResponse,
+  approvalsDisabled,
+}: {
+  part: Part
+  onApprovalResponse: ApprovalResponder
+  approvalsDisabled?: boolean
+}): React.JSX.Element | null {
+  if (isPendingApproval(part)) {
+    // Normally reached via grouped calls in MessageList; lone stragglers
+    // (e.g. a pending part on a non-assistant message) still get the card.
+    return (
+      <ApprovalGroup
+        parts={[part]}
+        onRespond={onApprovalResponse}
+        disabled={approvalsDisabled}
+      />
+    )
+  }
   if (isToolUIPart(part)) {
     return <ToolCard part={part} />
   }
@@ -74,6 +138,7 @@ function TextPart({ part }: { part: TextUIPart }): React.JSX.Element {
       mode="streaming"
       isAnimating={part.state === 'streaming'}
       components={markdownComponents}
+      rehypePlugins={rehypePlugins}
       className="prose-chat"
     >
       {part.text}
@@ -82,26 +147,23 @@ function TextPart({ part }: { part: TextUIPart }): React.JSX.Element {
 }
 
 /**
- * Custom `<a>` renderer: `file:` links (and bare `file:line` refs the agent
- * emits) open the right panel's File tab instead of navigating. Everything
- * else renders as a normal external link.
+ * Custom `<a>` renderer: `file:` links the agent emits
+ * (`[x.ts](file:src/x.ts#L12)`, plus the `file:path:line` and `file:///abs`
+ * spellings — see lib/fileRefs.ts) open the right panel's File tab instead
+ * of navigating. Everything else renders as a normal external link.
  */
 function FileAwareLink({
   href,
   children,
 }: React.ComponentProps<'a'> & ExtraProps): React.JSX.Element {
   const openFile = useUiStore((s) => s.openFile)
-  if (href?.startsWith('file:')) {
-    // Accept `file:path` and `file:path:line` spellings.
-    const ref = href.slice('file:'.length)
-    const match = /^(.*?)(?::(\d+))?$/.exec(ref)
-    const path = match?.[1] ?? ref
-    const line = match?.[2] ? Number(match[2]) : undefined
+  const ref = href ? parseFileHref(href) : null
+  if (ref) {
     return (
       <button
         type="button"
-        onClick={() => openFile(path, line)}
-        title={path}
+        onClick={() => openFile(ref.path, ref.line)}
+        title={ref.path}
         className="inline cursor-pointer border-0 bg-transparent p-0 font-medium text-blue-600 underline decoration-blue-300 underline-offset-2 hover:text-blue-700"
       >
         {children}
@@ -134,60 +196,6 @@ function ReasoningPart({ part }: { part: ReasoningUIPart }): React.JSX.Element {
 }
 
 /* ------------------------------------------------------------------ */
-/* tools                                                               */
-/* ------------------------------------------------------------------ */
-
-const STATE_LABEL: Record<string, string> = {
-  'input-streaming': 'calling…',
-  'input-available': 'called',
-  'approval-requested': 'awaiting approval',
-  'approval-responded': 'approval answered',
-  'output-available': 'done',
-  'output-error': 'failed',
-  'output-denied': 'denied',
-}
-
-function toolName(part: ToolUIPart | DynamicToolUIPart): string {
-  return part.type === 'dynamic-tool' ? part.toolName : part.type.slice('tool-'.length)
-}
-
-function ToolCard({
-  part,
-}: {
-  part: ToolUIPart | DynamicToolUIPart
-}): React.JSX.Element {
-  const state = part.state
-  const errored = state === 'output-error' || state === 'output-denied'
-  return (
-    <Collapsible
-      icon={<Wrench className="h-3.5 w-3.5" />}
-      label={toolName(part)}
-      badge={STATE_LABEL[state] ?? state}
-      errored={errored}
-      defaultOpen={state === 'input-streaming'}
-    >
-      <div className="space-y-2 text-xs">
-        {'input' in part && part.input !== undefined && (
-          <KeyValue label="input" value={truncate(stringify(part.input))} />
-        )}
-        {'output' in part && part.output !== undefined && (
-          <KeyValue label="output" value={truncate(stringify(part.output))} />
-        )}
-        {'errorText' in part && part.errorText && (
-          <KeyValue label="error" value={part.errorText} error />
-        )}
-        {'approval' in part && part.approval && (
-          <p className="text-neutral-500">
-            approval: {part.approval.approved ? 'approved' : 'denied'}
-            {part.approval.reason ? ` — ${part.approval.reason}` : ''}
-          </p>
-        )}
-      </div>
-    </Collapsible>
-  )
-}
-
-/* ------------------------------------------------------------------ */
 /* data / files / sources                                              */
 /* ------------------------------------------------------------------ */
 
@@ -199,7 +207,12 @@ function ToolCard({
 const DATA_RENDERERS: Record<
   string,
   (data: unknown, id?: string) => React.JSX.Element
-> = {}
+> = {
+  // `data-plan` — full plan snapshot; latest per message (see transcriptParts).
+  plan: (data) => <PlanCard data={data} />,
+  // `data-shell`/`data-run-meta` are intentionally unregistered: the Terminal
+  // tab and the chat header own them, and MessageList drops them inline.
+}
 
 function DataCard({
   part,
@@ -251,138 +264,4 @@ function SourceDocumentPart({
   part: SourceDocumentUIPart
 }): React.JSX.Element {
   return <Chip icon={FileCode} label={part.title} title={part.filename} />
-}
-
-/* ------------------------------------------------------------------ */
-/* shared bits                                                         */
-/* ------------------------------------------------------------------ */
-
-function Collapsible({
-  label,
-  badge,
-  icon,
-  muted,
-  errored,
-  defaultOpen,
-  children,
-}: {
-  label: string
-  badge?: string
-  icon?: ReactNode
-  muted?: boolean
-  errored?: boolean
-  defaultOpen?: boolean
-  children: ReactNode
-}): React.JSX.Element {
-  const [open, setOpen] = useState(defaultOpen ?? false)
-  return (
-    <div
-      className={`my-1.5 rounded-md border text-left ${
-        errored ? 'border-red-200 bg-red-50' : 'border-neutral-200 bg-neutral-50'
-      }`}
-    >
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className={`flex w-full items-center gap-1.5 px-2.5 py-1.5 text-xs ${
-          muted ? 'text-neutral-500' : 'text-neutral-700'
-        }`}
-      >
-        <ChevronRight
-          className={`h-3 w-3 shrink-0 transition-transform ${open ? 'rotate-90' : ''}`}
-        />
-        {icon}
-        <span className="truncate font-medium">{label}</span>
-        {badge && (
-          <span
-            className={`ml-auto shrink-0 rounded px-1.5 py-0.5 text-[10px] ${
-              errored
-                ? 'bg-red-100 text-red-700'
-                : 'bg-neutral-200 text-neutral-600'
-            }`}
-          >
-            {badge}
-          </span>
-        )}
-      </button>
-      {open && <div className="border-t border-neutral-200 px-3 py-2">{children}</div>}
-    </div>
-  )
-}
-
-function KeyValue({
-  label,
-  value,
-  error,
-}: {
-  label: string
-  value: string
-  error?: boolean
-}): React.JSX.Element {
-  return (
-    <div>
-      <p className={`mb-0.5 font-medium ${error ? 'text-red-600' : 'text-neutral-500'}`}>
-        {label}
-      </p>
-      <pre
-        className={`whitespace-pre-wrap break-words rounded bg-white px-2 py-1.5 font-mono ${
-          error ? 'text-red-700' : 'text-neutral-700'
-        }`}
-      >
-        {value}
-      </pre>
-    </div>
-  )
-}
-
-function JsonCard({
-  title,
-  value,
-}: {
-  title: string
-  value: unknown
-}): React.JSX.Element {
-  return (
-    <Collapsible label={title}>
-      <pre className="whitespace-pre-wrap break-words text-xs text-neutral-600">
-        {truncate(stringify(value))}
-      </pre>
-    </Collapsible>
-  )
-}
-
-function Chip({
-  icon: Icon,
-  label,
-  title,
-}: {
-  icon: typeof Paperclip
-  label: string
-  title?: string
-}): React.JSX.Element {
-  return (
-    <span
-      title={title}
-      className="my-1 inline-flex items-center gap-1.5 rounded border border-neutral-200 bg-neutral-50 px-2 py-1 text-xs text-neutral-600"
-    >
-      <Icon className="h-3 w-3" />
-      {label}
-    </span>
-  )
-}
-
-function stringify(value: unknown): string {
-  if (typeof value === 'string') return value
-  try {
-    return JSON.stringify(value, null, 2)
-  } catch {
-    return String(value)
-  }
-}
-
-/** Cap long tool output at ~50 lines so one noisy call can't flood the view. */
-function truncate(text: string): string {
-  const lines = text.split('\n')
-  if (lines.length <= OUTPUT_LINE_LIMIT) return text
-  return `${lines.slice(0, OUTPUT_LINE_LIMIT).join('\n')}\n… (${lines.length - OUTPUT_LINE_LIMIT} more lines)`
 }

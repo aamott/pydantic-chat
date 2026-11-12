@@ -20,9 +20,9 @@ Local-first AI chat + coding-agent desktop app. An Electron shell (React / Vite 
 - ✅ ~~P1-app-scaffold~~ — repo, electron-vite, sidecar lifecycle, loopback auth, shell chrome, dev builds
 - ✅ ~~P1-workspaces-persistence~~ — sqlite ConversationStore, REST CRUD, grouped sidebar, titles
 - ✅ ~~P1-settings~~ — settings window, settings API, API keys
-- [P1-chat-core](P1-chat-core.md) — `/chat` endpoint + useChat client + message rendering (endpoint + rendering done; client wip, replay pending)
-- [P1-agent-harness](P1-agent-harness.md) — Coder/Planning/Permissions wiring, providers, permission profiles, approval UI
-- [P1-right-panel](P1-right-panel.md) — split view, read-only file viewer, file links, explorer, diffs, terminal (layout/viewer/explorer done)
+- ✅ ~~P1-chat-core~~ — `/chat` endpoint + useChat client + rendering + stream replay
+- ✅ ~~P1-agent-harness~~ — capabilities, providers, permission profiles, approvals, plan/shell events
+- ✅ ~~P1-right-panel~~ — split view, file viewer/links, explorer, diffs, terminal
 
 ### Later
 
