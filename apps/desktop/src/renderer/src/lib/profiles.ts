@@ -176,11 +176,21 @@ export function encodeToolSelection(
  * 'profile' (a 409 on collision reads clearly to the user).
  */
 export function slugifyProfileId(name: string): string {
-  const slug = name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+/, '')
-    .replace(/-+$/, '')
+  /* Scan-free slug: collapse each non-alnum run into one dash; leading
+   * runs emit nothing, trailing runs die in `pendingDash` — no regex, no
+   * backtracking (sonar S5852 flags the replace chain otherwise). */
+  let slug = ''
+  let pendingDash = false
+  for (const ch of name.toLowerCase()) {
+    const alnum = (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9')
+    if (!alnum) {
+      pendingDash = slug.length > 0
+      continue
+    }
+    if (pendingDash) slug += '-'
+    pendingDash = false
+    slug += ch
+  }
   return slug || 'profile'
 }
 
