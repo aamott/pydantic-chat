@@ -7,19 +7,33 @@
  * The textarea owns its own input state (AI SDK v7 `useChat` no longer
  * manages input); Enter sends / Shift+Enter newlines; send flips to stop
  * while a run is live. `AttachPicker` inserts `[name](file:path)` links at
- * the textarea cursor.
+ * the textarea cursor; typing `@` opens `MentionList`, which inserts the
+ * same link over the `@query` token (see lib/mentions.ts for the trigger
+ * rule — `@` after a non-word char only, so emails never trigger).
  */
 import { useRef, useState } from 'react'
 import type { ChatStatus } from 'ai'
 import { SendHorizontal, Square } from 'lucide-react'
+import {
+  applyMention,
+  detectMention,
+  filterMentionFiles,
+  type MentionQuery,
+} from '../../lib/mentions'
+import type { FlatFile } from '../../lib/workspaceFiles'
 import { AttachPicker } from './AttachPicker'
+import { MentionList } from './MentionList'
 import { ModelPicker } from './ModelPicker'
 import { ProfilePicker } from './ProfilePicker'
+import { useWorkspaceFiles } from './useWorkspaceFiles'
+
+/** Rows shown in the `@` mention popup before it scrolls. */
+const MENTION_MAX_SHOWN = 8
 
 interface ComposerProps {
   /** Chat this composer writes to — the pickers PATCH their overrides on it. */
   chatId: string
-  /** Workspace the attach picker lists files from. */
+  /** Workspace the attach/mention pickers list files from. */
   workspaceId: string | null
   /** Chat status — drives the send/stop button swap. */
   status: ChatStatus
@@ -41,18 +55,98 @@ export function Composer({
 }: ComposerProps): React.JSX.Element {
   const [text, setText] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const bubbleRef = useRef<HTMLDivElement>(null)
   const busy = status === 'submitted' || status === 'streaming'
+
+  /* `@` mention session: the live token at the caret (null = popup
+   * closed) plus the keyboard-highlighted row. */
+  const [mention, setMention] = useState<MentionQuery | null>(null)
+  const [mentionIndex, setMentionIndex] = useState(0)
+  const mentionFiles = useWorkspaceFiles(workspaceId, mention !== null)
+  const mentionShown = mention
+    ? filterMentionFiles(
+        mentionFiles.status === 'ready' ? mentionFiles.files : [],
+        mention.query,
+        MENTION_MAX_SHOWN,
+      )
+    : []
+  /* Clamp: the list can shrink under the highlight as the query narrows. */
+  const activeMentionIndex = Math.min(
+    mentionIndex,
+    Math.max(mentionShown.length - 1, 0),
+  )
 
   const send = (): void => {
     const trimmed = text.trim()
     if (!trimmed || busy || disabled) return
     onSend(trimmed)
     setText('')
+    setMention(null)
     // Reset the auto-grown height after clearing.
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
   }
 
+  /**
+   * Re-detect the `@query` token at the caret — called on every change
+   * and selection move so the popup follows typing, deletion, paste and
+   * caret clicks. A non-collapsed selection never counts as a mention.
+   */
+  const updateMention = (el: HTMLTextAreaElement): void => {
+    setMention(
+      el.selectionStart === el.selectionEnd
+        ? detectMention(el.value, el.selectionStart)
+        : null,
+    )
+    setMentionIndex(0)
+  }
+
+  /** Replace the `@query` token with the picked file's `file:` link. */
+  const insertMention = (file: FlatFile): void => {
+    if (!mention) return
+    const { text: next, cursor } = applyMention(text, mention, file)
+    setText(next)
+    setMention(null)
+    // Defer until React has flushed the new value into the textarea.
+    requestAnimationFrame(() => {
+      const el = textareaRef.current
+      if (!el) return
+      el.focus()
+      el.setSelectionRange(cursor, cursor)
+      autoGrow()
+    })
+  }
+
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
+    /* Mention popup owns the caret keys while open. `isComposing` leaves
+     * IME candidate windows (e.g. Japanese input) untouched. */
+    if (mention && !e.nativeEvent.isComposing) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault()
+        setMentionIndex(
+          Math.min(
+            Math.max(activeMentionIndex + (e.key === 'ArrowDown' ? 1 : -1), 0),
+            Math.max(mentionShown.length - 1, 0),
+          ),
+        )
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        e.stopPropagation()
+        setMention(null)
+        return
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        const file = mentionShown[activeMentionIndex]
+        if (file) {
+          e.preventDefault()
+          insertMention(file)
+          return
+        }
+        /* No matches: Enter falls through to send; Tab keeps its default
+         * focus move. */
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       send()
@@ -93,22 +187,46 @@ export function Composer({
 
   return (
     <div className="shrink-0 border-t border-neutral-200 bg-white p-3">
-      <div className="mx-auto max-w-3xl rounded-xl border border-neutral-300 bg-white px-3 pt-2 pb-1.5 focus-within:border-blue-400">
+      <div
+        ref={bubbleRef}
+        className="mx-auto max-w-3xl rounded-xl border border-neutral-300 bg-white px-3 pt-2 pb-1.5 focus-within:border-blue-400"
+      >
         <textarea
           ref={textareaRef}
           value={text}
           onChange={(e) => {
             setText(e.target.value)
+            updateMention(e.target)
             autoGrow()
           }}
+          onSelect={(e) => updateMention(e.currentTarget)}
+          /* Focus leaving the composer closes the popup — row clicks
+           * can't blur it (mousedown preventDefault in MentionList). */
+          onBlur={() => setMention(null)}
           onKeyDown={onKeyDown}
           disabled={disabled}
           rows={1}
           placeholder={
             disabled ? 'Select or create a chat…' : 'Message the agent…'
           }
+          aria-activedescendant={
+            mention && mentionShown.length > 0
+              ? `mention-option-${activeMentionIndex}`
+              : undefined
+          }
           className="max-h-40 min-h-[1.5rem] w-full resize-none bg-transparent text-sm outline-none placeholder:text-neutral-400 disabled:cursor-not-allowed"
         />
+        {mention && workspaceId && (
+          <MentionList
+            anchor={bubbleRef.current}
+            state={mentionFiles}
+            shown={mentionShown}
+            activeIndex={activeMentionIndex}
+            onPick={insertMention}
+            onClose={() => setMention(null)}
+            onHighlight={setMentionIndex}
+          />
+        )}
         {/* Toolbar: attach + profile on the left, model + send on the right. */}
         <div className="mt-1 flex items-center gap-1">
           <AttachPicker

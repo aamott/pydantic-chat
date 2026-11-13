@@ -1,53 +1,20 @@
 /**
  * Composer `+` attach picker: opens a popover listing the workspace's files
- * (`GET /api/files/tree`, flattened client-side) behind a filter input.
- * Picking a file inserts a `[name](file:relpath)` markdown link into the
- * composer at the cursor — the same `file:` scheme MessagePart renders and
- * `parseFileHref` resolves.
+ * (`GET /api/files/tree` via `useWorkspaceFiles`, flattened client-side)
+ * behind a filter input. Picking a file inserts a `[name](file:path)`
+ * markdown link into the composer at the cursor — the same `file:` scheme
+ * MessagePart renders and `parseFileHref` resolves.
  *
  * The tree is re-fetched on every open so newly created files show up; at
  * most `MAX_SHOWN` filtered entries render at once.
  */
 import { useEffect, useRef, useState } from 'react'
 import { File, LoaderCircle, Plus, TriangleAlert } from 'lucide-react'
-import { apiFetch } from '../../lib/api'
+import { fileMentionMarkdown, type FlatFile } from '../../lib/workspaceFiles'
 import { Popover } from './Popover'
+import { useWorkspaceFiles } from './useWorkspaceFiles'
 
-/* Mirrors `FileTreeNode` in app/api/schemas.py (see FileExplorer). */
-interface FileTreeNode {
-  name: string
-  path: string
-  type: 'file' | 'dir'
-  children?: FileTreeNode[] | null
-}
-
-interface FileTreeResponse {
-  root: FileTreeNode
-  truncated: boolean
-}
-
-interface FlatFile {
-  name: string
-  path: string
-}
-
-/** Deeper than the explorer's 3 — attachments can live anywhere. */
-const TREE_DEPTH = 6
 const MAX_SHOWN = 50
-
-type ListState =
-  | { status: 'loading' }
-  | { status: 'ready'; files: FlatFile[]; truncated: boolean }
-  | { status: 'error'; message: string }
-
-/** Depth-first flatten of the tree into file entries only. */
-function flatten(node: FileTreeNode, out: FlatFile[]): void {
-  if (node.type === 'file') {
-    out.push({ name: node.name, path: node.path })
-    return
-  }
-  for (const child of node.children ?? []) flatten(child, out)
-}
 
 interface AttachPickerProps {
   /** Workspace whose files are listed; null disables the picker. */
@@ -64,44 +31,14 @@ export function AttachPicker({
 }: AttachPickerProps): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const [filter, setFilter] = useState('')
-  const [state, setState] = useState<ListState>({ status: 'loading' })
+  const state = useWorkspaceFiles(workspaceId, open)
   const buttonRef = useRef<HTMLButtonElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  /* Fetch + reset each time the popover opens. */
+  /* Reset the filter each time the popover opens. */
   useEffect(() => {
-    if (!open || !workspaceId) return
-    let cancelled = false
-    setState({ status: 'loading' })
-    setFilter('')
-
-    const params = new URLSearchParams({
-      workspace_id: workspaceId,
-      depth: String(TREE_DEPTH),
-    })
-    apiFetch(`/api/files/tree?${params}`)
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        const tree = (await res.json()) as FileTreeResponse
-        const files: FlatFile[] = []
-        flatten(tree.root, files)
-        if (!cancelled) {
-          setState({ status: 'ready', files, truncated: tree.truncated })
-        }
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) {
-          setState({
-            status: 'error',
-            message: error instanceof Error ? error.message : String(error),
-          })
-        }
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [open, workspaceId])
+    if (open) setFilter('')
+  }, [open])
 
   /* Focus the filter input once the list has settled. */
   useEffect(() => {
@@ -118,7 +55,7 @@ export function AttachPicker({
       : []
 
   const pick = (file: FlatFile): void => {
-    onInsert(`[${file.name}](file:${file.path})`)
+    onInsert(fileMentionMarkdown(file))
     setOpen(false)
   }
 
