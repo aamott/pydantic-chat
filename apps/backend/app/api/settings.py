@@ -26,7 +26,7 @@ from typing import Any, get_args
 
 from fastapi import APIRouter, HTTPException, status
 
-from app.agent.factory import SMART_DEFAULT_JUDGE, PermissionProfile
+from app.agent.factory import PermissionProfile
 from app.agent.models import (
     DEFAULT_OLLAMA_BASE_URL,
     KNOWN_PROVIDERS,
@@ -220,7 +220,12 @@ async def _settings_out(store: ChatStore) -> SettingsOut:
         allowed_patterns=_list_value(raw, "allowed_patterns"),
         denied_patterns=_list_value(raw, "denied_patterns"),
         ollama_base_url=get_secret("ollama_base_url") or DEFAULT_OLLAMA_BASE_URL,
-        judge_model=raw.get("judge_model") or SMART_DEFAULT_JUDGE,
+        # Nullable on purpose: judge_model carries an *explicit* override only.
+        # Echoing a display default here once let the settings form persist it
+        # back as a real row — a user without that provider's key then silently
+        # got manual permissions instead of smart. ``None`` means "judge with
+        # the run's own model" (the last-resort spec lives in the factory).
+        judge_model=raw.get("judge_model") or None,
     )
 
 
@@ -249,6 +254,11 @@ async def _apply_setting(store: ChatStore, key: str, value: Any) -> None:
         )
         return
     if value is None:
+        await store.delete_setting(key)
+        return
+    # judge_model is the one nullable scalar: the settings form submits ""
+    # for a cleared field, which must clear the row (not validate as a spec).
+    if key == "judge_model" and isinstance(value, str) and not value.strip():
         await store.delete_setting(key)
         return
     if key in LIST_SETTING_KEYS:

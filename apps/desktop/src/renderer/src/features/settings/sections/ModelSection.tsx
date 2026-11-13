@@ -34,14 +34,14 @@ export function ModelSection(): React.JSX.Element | null {
       {settings.permission_profile === 'smart' && (
         <Field
           label="Judge model"
-          hint="Model that reviews tool calls under the smart permission profile. Same provider:model format."
+          hint="Model that reviews tool calls under the smart permission profile. Same provider:model format. Empty judges with the chat's model."
           keywords="judge model reviewer approval smart permission profile"
         >
           <input
             type="text"
-            value={settings.judge_model}
+            value={settings.judge_model ?? ''}
             onChange={(event) => patch('judge_model', event.target.value)}
-            placeholder="provider:model"
+            placeholder="Auto — uses the chat's model"
             spellCheck={false}
             className={`${inputClass} font-mono`}
           />

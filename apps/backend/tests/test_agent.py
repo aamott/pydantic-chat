@@ -351,6 +351,40 @@ def test_build_run_kwargs_explicit_judge_model_wins(tmp_path):
     assert isinstance(reviewer.model, OllamaModel)
 
 
+def test_build_run_kwargs_broken_explicit_judge_falls_back_to_run_model(
+    tmp_path,
+):
+    """An unresolvable ``judge_model`` setting degrades to the run model.
+
+    Regression for the settings round-trip bug: ``GET /api/settings`` echoed
+    ``SMART_DEFAULT_JUDGE`` as the judge default and the form wrote it back
+    as an explicit setting, so a user with no anthropic key hit
+    ``ProviderNotConfigured`` → silent ``manual`` fallback on every smart
+    run. The run's own model is configured by definition — it judges instead.
+    """
+    set_secret("google_api_key", "g-test")  # anthropic stays unconfigured
+    kwargs = build_run_kwargs(
+        _chat_settings(
+            model="google:gemini-2.5-flash",
+            permission_profile="smart",
+            judge_model="anthropic:claude-haiku-4-5",  # persisted echo
+        ),
+        tmp_path,
+    )
+    capabilities = kwargs["capabilities"]
+    reviewer = next(
+        (c for c in capabilities if isinstance(c, ApprovalReviewer)), None
+    )
+    assert reviewer is not None, (
+        "broken explicit judge_model degraded smart to manual "
+        "instead of judging with the run model"
+    )
+    assert reviewer.model is kwargs["model"]  # the run's own resolved model
+    permissions = [c for c in capabilities if isinstance(c, Permissions)]
+    assert permissions
+    assert permissions[0].mode == "auto"
+
+
 # ---------------------------------------------------------------------------
 # resolve_model_name
 # ---------------------------------------------------------------------------

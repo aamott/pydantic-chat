@@ -1,5 +1,6 @@
 """Tests for the settings REST API: KV round-trip, provider status, secrets file."""
 
+import asyncio
 import stat
 
 import pytest
@@ -10,6 +11,7 @@ from app.config import (
     DEFAULT_MODEL,
     DEFAULT_PERMISSION_PROFILE,
     get_secret,
+    load_settings,
     secrets_path,
 )
 from app.main import create_app
@@ -69,7 +71,7 @@ def test_settings_defaults(client):
         "allowed_patterns": [],
         "denied_patterns": [],
         "ollama_base_url": DEFAULT_OLLAMA_BASE_URL,
-        "judge_model": "anthropic:claude-haiku-4-5",
+        "judge_model": None,
     }
 
 
@@ -110,6 +112,50 @@ def test_settings_bulk_put_merges_and_round_trips(client):
     )
     assert response.status_code == 200
     assert _settings(test_client)["default_model"] == DEFAULT_MODEL
+
+
+def test_judge_model_unset_round_trip_and_clear(client):
+    """``judge_model`` is nullable — it carries an explicit override only.
+
+    ``None`` means "judge with the run's own model". The GET response must
+    not echo a display default (that echo used to get persisted by the
+    settings form and silently break ``smart`` for users without an
+    anthropic key), and clearing the field — ``null`` or the empty string
+    the form submits — must remove the stored row for real.
+    """
+    test_client, _ = client
+    assert _settings(test_client)["judge_model"] is None
+
+    # An explicit judge survives the round trip.
+    response = test_client.put(
+        "/api/settings", json={"judge_model": "ollama:qwen3"}, headers=AUTH
+    )
+    assert response.status_code == 200
+    assert response.json()["judge_model"] == "ollama:qwen3"
+
+    # Clearing via null removes the row — the next GET must not resurrect it.
+    response = test_client.put(
+        "/api/settings", json={"judge_model": None}, headers=AUTH
+    )
+    assert response.status_code == 200
+    assert response.json()["judge_model"] is None
+    assert not asyncio.run(load_settings()).get("judge_model"), (
+        "cleared judge_model still stored a truthy row"
+    )
+
+    # The form clears optional text fields by submitting "" — same result.
+    response = test_client.put(
+        "/api/settings", json={"judge_model": "ollama:qwen3"}, headers=AUTH
+    )
+    assert response.status_code == 200
+    response = test_client.put(
+        "/api/settings", json={"judge_model": ""}, headers=AUTH
+    )
+    assert response.status_code == 200
+    assert response.json()["judge_model"] is None
+    assert not asyncio.run(load_settings()).get("judge_model"), (
+        "empty-string judge_model left a truthy row behind"
+    )
 
 
 def test_settings_single_key_put(client):

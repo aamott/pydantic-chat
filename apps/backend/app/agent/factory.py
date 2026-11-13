@@ -42,6 +42,7 @@ from pydantic_ai_harness.shell import Shell
 from app.agent.events import install_ui_event_bridge, run_meta_hooks
 from app.agent.models import (
     ProviderNotConfigured,
+    UnknownProviderError,
     resolve_model,
     thinking_model_settings,
 )
@@ -68,7 +69,9 @@ explicit ``judge_model`` setting, then the run's own model (configured by
 definition — ``build_run_kwargs`` supplies it), then this spec. It exists for
 direct ``resolve_permission_capabilities`` callers that have no run model;
 when even it can't resolve (no provider key), ``smart`` falls back to
-``manual`` with a warning.
+``manual`` with a warning. An explicit ``judge_model`` that fails to resolve
+(e.g. a stale settings row naming an unconfigured provider) likewise degrades
+to the run model rather than to ``manual``.
 """
 
 APPROVAL_RISK_QUESTION = "Could this call destroy data, spend money, or leak secrets?"
@@ -172,6 +175,7 @@ def resolve_permission_capabilities(
     lists: PermissionLists | None = None,
     *,
     judge_model: str | Model | None = None,
+    fallback_model: Model | None = None,
 ) -> list[AbstractCapability]:
     """The capabilities a run needs for one permission profile.
 
@@ -183,11 +187,12 @@ def resolve_permission_capabilities(
             to ``manual`` — the safest default.
         lists: User allow/deny lists passed through to ``Shell``/``FileSystem``.
         judge_model: Reviewer for ``smart`` — a ``Model`` or a
-            ``provider:model`` spec resolved through the registry. Defaults to
-            :data:`SMART_DEFAULT_JUDGE`; when it can't be configured (no key),
-            ``smart`` falls back to ``manual``. ``build_run_kwargs`` always
-            passes a value here — the ``judge_model`` setting, else the run's
-            own resolved model — so this default only serves direct callers.
+            ``provider:model`` spec resolved through the registry.
+        fallback_model: Judge tried when ``judge_model`` is absent or fails
+            to resolve — ``build_run_kwargs`` passes the run's own resolved
+            model, which is configured by definition. After it comes
+            :data:`SMART_DEFAULT_JUDGE`; when no candidate resolves, ``smart``
+            falls back to ``manual``.
 
     Returns:
         The capability list to merge into ``build_run_kwargs``'s.
@@ -198,7 +203,7 @@ def resolve_permission_capabilities(
         return [_coder_with_lists(lists), Permissions("full")]
 
     if profile == "smart":
-        reviewer = _approval_reviewer(judge_model)
+        reviewer = _approval_reviewer(judge_model, fallback_model)
         if reviewer is not None:
             return [_coder_with_lists(lists), Permissions("auto"), reviewer]
         logger.warning("Smart profile has no usable judge model; falling back to manual")
@@ -222,22 +227,34 @@ def resolve_permission_capabilities(
     return _manual_capabilities(lists)
 
 
-def _approval_reviewer(judge_model: str | Model | None) -> ApprovalReviewer | None:
-    """An ``ApprovalReviewer`` for the judge, or ``None`` when unconfigurable.
+def _approval_reviewer(
+    judge_model: str | Model | None,
+    fallback_model: Model | None = None,
+) -> ApprovalReviewer | None:
+    """An ``ApprovalReviewer`` for the best available judge, or ``None``.
 
-    ``judge_model`` is whatever the caller prioritized — the explicit setting
-    or the run's own ``Model``. ``None`` falls back to
-    :data:`SMART_DEFAULT_JUDGE`, which can still hit ``ProviderNotConfigured``
-    (e.g. a Google-key-only user); that returns ``None`` so ``smart``
-    degrades to ``manual`` rather than crashing the run setup.
+    Candidates in priority order: the explicit ``judge_model`` (a ``Model``
+    or a ``provider:model`` spec), then ``fallback_model`` (the run's own
+    resolved model — an explicit setting that fails to resolve, e.g. a stale
+    row naming an unconfigured provider, degrades here rather than to
+    ``manual``), then :data:`SMART_DEFAULT_JUDGE` for direct callers with no
+    run model. ``None`` is returned only when no candidate resolves, letting
+    ``smart`` degrade to ``manual`` instead of crashing the run setup.
     """
-    spec: str | Model = judge_model or SMART_DEFAULT_JUDGE
-    try:
-        model = spec if not isinstance(spec, str) else resolve_model(spec)
-    except ProviderNotConfigured as error:
-        logger.warning("Judge model unavailable for smart profile: %s", error)
-        return None
-    return ApprovalReviewer(model, question=APPROVAL_RISK_QUESTION)
+    candidates: list[str | Model] = [judge_model] if judge_model else []
+    if fallback_model is not None:
+        candidates.append(fallback_model)
+    candidates.append(SMART_DEFAULT_JUDGE)
+    for spec in candidates:
+        try:
+            model = spec if not isinstance(spec, str) else resolve_model(spec)
+        except (ProviderNotConfigured, UnknownProviderError) as error:
+            logger.warning(
+                "Judge model %r unavailable for smart profile: %s", spec, error
+            )
+            continue
+        return ApprovalReviewer(model, question=APPROVAL_RISK_QUESTION)
+    return None
 
 
 _AGENT: Agent[None, str | DeferredToolRequests] = Agent(
@@ -278,8 +295,9 @@ def build_run_kwargs(
             the unified ``ModelSettings.thinking`` field),
             ``permission_profile``, ``judge_model``, the four allow/deny lists,
             and ``chat_id`` (scopes the persistent plan). Missing keys fall
-            back to safe defaults; a missing ``judge_model`` makes the
-            ``smart`` profile's reviewer judge with the run's own model.
+            back to safe defaults; a missing or unresolvable ``judge_model``
+            makes the ``smart`` profile's reviewer judge with the run's own
+            model.
         workspace: The app ``Workspace`` row, or a bare path.
 
     Returns:
@@ -301,17 +319,21 @@ def build_run_kwargs(
     # Resolve once and share the instance: a ``smart`` run judges with the
     # explicit ``judge_model`` setting, else this same model — it's configured
     # by definition, which keeps ``smart`` working for users whose only key
-    # belongs to the chat model's provider (the anthropic SMART_DEFAULT_JUDGE
-    # would otherwise force a silent manual fallback). Raises
-    # ProviderNotConfigured for an unconfigured run model before anything else
-    # is built — the route maps that to 402 either way.
+    # belongs to the chat model's provider. It is also the fallback when an
+    # explicit ``judge_model`` can't resolve (a stale settings row, e.g. the
+    # anthropic default a form save once persisted, with no anthropic key) —
+    # an unresolvable judge degrades to the run model, never silently to
+    # ``manual``. Raises ProviderNotConfigured for an unconfigured run model
+    # before anything else is built — the route maps that to 402 either way.
     model = resolve_model(model_spec)
-    judge_model: str | Model = _setting(chat_settings, "judge_model") or model
+    judge_model = _setting(chat_settings, "judge_model")
 
     read_only = profile == "read-only"
     capabilities: list[AbstractCapability] = [
         LocalWorkspace(root, read_only=read_only),
-        *resolve_permission_capabilities(profile, lists, judge_model=judge_model),
+        *resolve_permission_capabilities(
+            profile, lists, judge_model=judge_model, fallback_model=model
+        ),
         _planning_capability(_setting(chat_settings, "chat_id")),
         # Emits the `data-run-meta` chunk so the UI can badge the effective
         # (post-workspace-override) profile from the stream's first events.

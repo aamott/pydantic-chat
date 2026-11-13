@@ -164,9 +164,11 @@ class SettingsOut(BaseModel):
     """``GET /api/settings`` response — every non-secret app setting, fully populated.
 
     Missing rows fall back to the app defaults, so the frontend always gets a
-    complete object. ``allowed_patterns``/``denied_patterns`` are file-glob lists
-    applied to the agent's ``FileSystem`` capability; the command lists feed
-    ``Shell``. Never contains key material.
+    complete object. ``judge_model`` is the exception — it is ``None`` unless
+    the user picked an explicit judge, since ``None`` means "smart judges with
+    the run's own model". ``allowed_patterns``/``denied_patterns`` are
+    file-glob lists applied to the agent's ``FileSystem`` capability; the
+    command lists feed ``Shell``. Never contains key material.
     """
 
     theme: str
@@ -177,7 +179,7 @@ class SettingsOut(BaseModel):
     allowed_patterns: list[str]
     denied_patterns: list[str]
     ollama_base_url: str
-    judge_model: str
+    judge_model: str | None
 
 
 class SettingsPatch(BaseModel):

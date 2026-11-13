@@ -35,7 +35,9 @@ export interface ChatSummary {
 /**
  * `GET /api/settings` response — every non-secret app setting, fully
  * populated (missing rows fall back to app defaults server-side).
- * `default_model`/`judge_model` are `provider:model` specs.
+ * `default_model`/`judge_model` are `provider:model` specs; `judge_model`
+ * is `null` unless an explicit judge is set — the null means the smart
+ * profile judges with the run's own model.
  */
 export interface AppSettings {
   theme: string
@@ -46,7 +48,7 @@ export interface AppSettings {
   allowed_patterns: string[]
   denied_patterns: string[]
   ollama_base_url: string
-  judge_model: string
+  judge_model: string | null
 }
 
 /**
