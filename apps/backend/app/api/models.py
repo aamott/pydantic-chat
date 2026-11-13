@@ -2,10 +2,12 @@
 
 Only providers that can resolve a model right now are listed —
 :func:`app.agent.models.configured_providers` is the single source of truth, so
-a provider without credentials never appears. Hosted providers serve the
-static, hand-editable :data:`~app.agent.models.MODEL_CATALOG`; Ollama's model
-list is fetched live from ``GET {ollama_base_url}/api/tags`` and degrades to an
-empty list when the local server is offline.
+a provider without credentials never appears. Google, OpenAI, and Anthropic
+fetch their provider's live model list merged with the hand-editable
+:data:`~app.agent.models.MODEL_CATALOG` (degrading to static on any failure);
+``openai-chat`` serves the static list, ``openai-compatible`` none. Ollama's
+model list is fetched live from ``GET {ollama_base_url}/api/tags`` and degrades
+to an empty list when the local server is offline.
 """
 
 from fastapi import APIRouter
@@ -50,6 +52,26 @@ async def list_models() -> ModelsOut:
                     provider=provider,
                     label=agent_models.MODEL_CATALOG["google"]["label"],
                     models=await agent_models.google_model_catalog(),
+                )
+            )
+            continue
+        if provider == "openai":
+            # Same dynamic/static merge for the Responses-API section;
+            # openai-chat below stays on the static list.
+            providers.append(
+                ModelProviderOut(
+                    provider=provider,
+                    label=agent_models.MODEL_CATALOG["openai"]["label"],
+                    models=await agent_models.openai_model_catalog(),
+                )
+            )
+            continue
+        if provider == "anthropic":
+            providers.append(
+                ModelProviderOut(
+                    provider=provider,
+                    label=agent_models.MODEL_CATALOG["anthropic"]["label"],
+                    models=await agent_models.anthropic_model_catalog(),
                 )
             )
             continue

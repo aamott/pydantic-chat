@@ -8,15 +8,18 @@ to the environment, so ``monkeypatch.setenv``/``delenv`` flips
 
 import httpx
 import pytest
+from anthropic._constants import ANTHROPIC_API_VERSION
 from fastapi.testclient import TestClient
 
 from app.agent.factory import build_run_kwargs
 from app.agent.models import (
     MODEL_CATALOG,
     UnknownProviderError,
+    anthropic_model_catalog,
     catalog_thinking_levels,
     google_model_catalog,
     ollama_model_catalog,
+    openai_model_catalog,
     split_model_spec,
 )
 from app.api.chat import _run_settings
@@ -93,8 +96,11 @@ def test_models_catalog_shape_and_filtering(client, monkeypatch):
     assert providers["ollama"]["label"] == "Ollama"
     assert isinstance(providers["ollama"]["models"], list)
 
-    # An Anthropic key adds its static section; OpenAI/Google stay absent.
+    # An Anthropic key adds its section; OpenAI/Google stay absent. The fake
+    # client refuses connections, so the live fetch falls back to the static
+    # list without touching the network.
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    _anthropic_client(monkeypatch, None, error=httpx.ConnectError("offline"))
     catalog = test_client.get("/api/models", headers=AUTH).json()
     providers = {entry["provider"]: entry for entry in catalog["providers"]}
     assert "anthropic" in providers
@@ -115,6 +121,8 @@ def test_models_catalog_shape_and_filtering(client, monkeypatch):
 def test_models_openai_key_adds_both_openai_sections(client, monkeypatch):
     test_client, _ = client
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    # Offline -> openai_model_catalog falls back to the static list.
+    _openai_client(monkeypatch, None, error=httpx.ConnectError("offline"))
     providers = {
         entry["provider"]: entry
         for entry in test_client.get("/api/models", headers=AUTH).json()["providers"]
@@ -467,6 +475,464 @@ def test_models_google_dynamic_in_endpoint(client, monkeypatch):
     assert [m["id"] for m in vertex["models"]] == [
         m["id"] for m in MODEL_CATALOG["google-cloud"]["models"]
     ]
+
+
+# ---------------------------------------------------------------------------
+# OpenAI dynamic catalog
+# ---------------------------------------------------------------------------
+
+_STATIC_OPENAI_IDS = [m["id"] for m in MODEL_CATALOG["openai"]["models"]]
+
+
+class _FakeOpenAIClient:
+    """Monkeypatched httpx.AsyncClient serving a canned /v1/models payload."""
+
+    payload: object = {"object": "list", "data": []}
+    error: Exception | None = None
+
+    def __init__(self, **kwargs):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return None
+
+    async def get(self, url, headers=None):
+        if self.error is not None:
+            raise self.error
+        assert url == "https://api.openai.com/v1/models"
+        assert headers == {"Authorization": "Bearer test-openai-key"}
+
+        class FakeResponse:
+            def __init__(self, payload):
+                self._payload = payload
+
+            def raise_for_status(self):
+                if isinstance(self._payload, Exception):
+                    raise self._payload
+
+            def json(self):
+                return self._payload
+
+        return FakeResponse(type(self).payload)
+
+
+def _openai_client(monkeypatch, payload, error=None):
+    """Install _FakeOpenAIClient with the given payload/transport error."""
+    _FakeOpenAIClient.payload = payload
+    _FakeOpenAIClient.error = error
+    monkeypatch.setattr("app.agent.models.httpx.AsyncClient", _FakeOpenAIClient)
+
+
+def _openai_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
+
+
+async def test_openai_model_catalog_filters_and_maps(tmp_path, monkeypatch):
+    """v1/models rows become openai:<id> entries; non-chat models drop."""
+    _openai_env(tmp_path, monkeypatch)
+    _openai_client(
+        monkeypatch,
+        {
+            "object": "list",
+            "data": [
+                {"id": "gpt-7.0", "object": "model", "created": 1, "owned_by": "openai"},
+                {"id": "o5-mini", "object": "model", "created": 1, "owned_by": "openai"},
+                {
+                    "id": "chatgpt-6-latest",
+                    "object": "model",
+                    "created": 1,
+                    "owned_by": "openai",
+                },
+                # Non-chat families the endpoint also lists: all dropped.
+                {"id": "dall-e-3", "object": "model", "created": 1, "owned_by": "openai"},
+                {"id": "whisper-1", "object": "model", "created": 1, "owned_by": "openai"},
+                {
+                    "id": "text-embedding-3-large",
+                    "object": "model",
+                    "created": 1,
+                    "owned_by": "openai",
+                },
+                # Starts with 'o' but is not an o-series reasoning model.
+                {
+                    "id": "omni-moderation-latest",
+                    "object": "model",
+                    "created": 1,
+                    "owned_by": "openai",
+                },
+                # Legacy completions-only models.
+                {"id": "davinci-002", "object": "model", "created": 1, "owned_by": "openai"},
+            ],
+        },
+    )
+    models = await openai_model_catalog()
+    dynamic = models[:3]
+    assert [m["id"] for m in dynamic] == [
+        "openai:gpt-7.0",
+        "openai:o5-mini",
+        "openai:chatgpt-6-latest",
+    ]
+    # The API returns no display names or context windows: name falls back to
+    # the model id, max_context stays None.
+    assert dynamic[0]["name"] == "gpt-7.0"
+    assert dynamic[0]["max_context"] is None
+    # o-series reasoning can't turn thinking off; gpt-*/chatgpt-* get all levels.
+    assert dynamic[0]["thinking_levels"] == ["off", "low", "medium", "high"]
+    assert dynamic[1]["thinking_levels"] == ["low", "medium", "high"]
+    assert dynamic[2]["thinking_levels"] == ["off", "low", "medium", "high"]
+    # Static flagships the API didn't return are appended, dedup'd by id.
+    assert [m["id"] for m in models[3:]] == _STATIC_OPENAI_IDS
+    assert len({m["id"] for m in models}) == len(models)
+
+
+async def test_openai_model_catalog_static_merge_and_dedup(tmp_path, monkeypatch):
+    """A static entry the API also returns keeps all its curated fields."""
+    _openai_env(tmp_path, monkeypatch)
+    _openai_client(
+        monkeypatch,
+        {
+            "object": "list",
+            "data": [
+                # Matches the static `openai:gpt-5.5` id: the API carries no
+                # display fields, so name/thinking/max_context all come from
+                # the curated static row.
+                {"id": "gpt-5.5", "object": "model", "created": 1, "owned_by": "openai"},
+            ],
+        },
+    )
+    models = await openai_model_catalog()
+    by_id = {m["id"]: m for m in models}
+    merged = by_id["openai:gpt-5.5"]
+    assert merged["name"] == "GPT-5.5"
+    assert merged["thinking_levels"] == ["off", "low", "medium", "high"]
+    assert merged["max_context"] == 400_000
+    # Each static id appears exactly once, API-returned ones in dynamic position.
+    assert models[0]["id"] == "openai:gpt-5.5"
+    assert sorted(m["id"] for m in models[1:]) == sorted(
+        i for i in _STATIC_OPENAI_IDS if i != "openai:gpt-5.5"
+    )
+
+
+async def test_openai_model_catalog_offline_falls_back_to_static(
+    tmp_path, monkeypatch
+):
+    """Transport errors, non-200s, and malformed payloads all yield the static list."""
+    _openai_env(tmp_path, monkeypatch)
+    static = MODEL_CATALOG["openai"]["models"]
+
+    _openai_client(monkeypatch, None, error=httpx.ConnectError("refused"))
+    assert await openai_model_catalog() == list(static)
+
+    _openai_client(monkeypatch, None, error=httpx.ReadTimeout("slow"))
+    assert await openai_model_catalog() == list(static)
+
+    # Non-200: raise_for_status throws inside the try block.
+    _openai_client(
+        monkeypatch,
+        httpx.HTTPStatusError(
+            "401", request=httpx.Request("GET", "https://x"), response=httpx.Response(401)
+        ),
+    )
+    assert await openai_model_catalog() == list(static)
+
+    _openai_client(monkeypatch, "not even json-shaped")
+    assert await openai_model_catalog() == list(static)
+
+    _openai_client(monkeypatch, {"unexpected": "shape"})
+    assert await openai_model_catalog() == list(static)
+
+
+async def test_openai_model_catalog_no_key_returns_static(tmp_path, monkeypatch):
+    """No openai_api_key -> static list, and the HTTP fetch never runs."""
+    _openai_env(tmp_path, monkeypatch)
+    monkeypatch.delenv("OPENAI_API_KEY")
+    _openai_client(monkeypatch, None, error=httpx.ConnectError("must not be called"))
+    assert await openai_model_catalog() == list(MODEL_CATALOG["openai"]["models"])
+
+
+def test_models_openai_dynamic_in_endpoint(client, monkeypatch):
+    """With a key, GET /api/models serves the openai section's dynamic rows."""
+    test_client, _ = client
+    monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
+
+    async def dynamic() -> list:
+        return [
+            {
+                "id": "openai:gpt-7.0",
+                "name": "gpt-7.0",
+                "thinking_levels": ["off", "low", "medium", "high"],
+                "max_context": None,
+            },
+        ]
+
+    monkeypatch.setattr("app.agent.models.openai_model_catalog", dynamic)
+    catalog = test_client.get("/api/models", headers=AUTH).json()
+    (openai,) = [e for e in catalog["providers"] if e["provider"] == "openai"]
+    assert openai["label"] == "OpenAI"
+    assert [m["id"] for m in openai["models"]] == ["openai:gpt-7.0"]
+    # openai-chat is untouched: still serves its static list.
+    (chat,) = [e for e in catalog["providers"] if e["provider"] == "openai-chat"]
+    assert [m["id"] for m in chat["models"]] == [
+        m["id"] for m in MODEL_CATALOG["openai-chat"]["models"]
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Anthropic dynamic catalog
+# ---------------------------------------------------------------------------
+
+_STATIC_ANTHROPIC_IDS = [m["id"] for m in MODEL_CATALOG["anthropic"]["models"]]
+
+
+class _FakeAnthropicClient:
+    """Monkeypatched httpx.AsyncClient serving a canned /v1/models payload."""
+
+    payload: object = {"data": [], "has_more": False}
+    error: Exception | None = None
+
+    def __init__(self, **kwargs):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return None
+
+    async def get(self, url, headers=None, params=None):
+        if self.error is not None:
+            raise self.error
+        assert url == "https://api.anthropic.com/v1/models"
+        assert headers == {
+            "x-api-key": "test-anthropic-key",
+            "anthropic-version": ANTHROPIC_API_VERSION,
+        }
+        # limit=1000 pulls the whole Claude catalog in a single page.
+        assert params == {"limit": 1000}
+
+        class FakeResponse:
+            def __init__(self, payload):
+                self._payload = payload
+
+            def raise_for_status(self):
+                if isinstance(self._payload, Exception):
+                    raise self._payload
+
+            def json(self):
+                return self._payload
+
+        return FakeResponse(type(self).payload)
+
+
+def _anthropic_client(monkeypatch, payload, error=None):
+    """Install _FakeAnthropicClient with the given payload/transport error."""
+    _FakeAnthropicClient.payload = payload
+    _FakeAnthropicClient.error = error
+    monkeypatch.setattr("app.agent.models.httpx.AsyncClient", _FakeAnthropicClient)
+
+
+def _anthropic_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-anthropic-key")
+
+
+async def test_anthropic_model_catalog_filters_and_maps(tmp_path, monkeypatch):
+    """v1/models rows become anthropic:<id> entries; non-Claude/retired drop."""
+    _anthropic_env(tmp_path, monkeypatch)
+    _anthropic_client(
+        monkeypatch,
+        {
+            "data": [
+                {
+                    "id": "claude-opus-5",
+                    "type": "model",
+                    "display_name": "Claude Opus 5",
+                    "created_at": "2031-01-01T00:00:00Z",
+                    "lifecycle": "active",
+                    "max_input_tokens": 500_000,
+                },
+                {
+                    # No display_name -> falls back to the model id.
+                    "id": "claude-haiku-5",
+                    "type": "model",
+                    "created_at": "2031-01-01T00:00:00Z",
+                    "lifecycle": "active",
+                },
+                {
+                    # Deprecated rows stay out of the new-chat picker.
+                    "id": "claude-sonnet-4-0",
+                    "type": "model",
+                    "display_name": "Claude Sonnet 4.0",
+                    "lifecycle": "deprecated",
+                },
+                {
+                    # Retired rows are no longer callable.
+                    "id": "claude-2.1",
+                    "type": "model",
+                    "display_name": "Claude 2.1",
+                    "lifecycle": "retired",
+                },
+                {
+                    # A non-Claude id on the account -> dropped.
+                    "id": "some-partner-model",
+                    "type": "model",
+                    "display_name": "Partner Model",
+                    "lifecycle": "active",
+                },
+            ],
+            "has_more": False,
+        },
+    )
+    models = await anthropic_model_catalog()
+    dynamic = models[:2]
+    assert [m["id"] for m in dynamic] == [
+        "anthropic:claude-opus-5",
+        "anthropic:claude-haiku-5",
+    ]
+    assert dynamic[0]["name"] == "Claude Opus 5"
+    assert dynamic[0]["max_context"] == 500_000
+    assert dynamic[1]["name"] == "claude-haiku-5"
+    assert dynamic[1]["max_context"] is None
+    # Static flagships the API didn't return are appended, dedup'd by id.
+    assert [m["id"] for m in models[2:]] == _STATIC_ANTHROPIC_IDS
+    assert len({m["id"] for m in models}) == len(models)
+
+
+async def test_anthropic_model_catalog_static_merge_and_dedup(
+    tmp_path, monkeypatch
+):
+    """A static entry the API also returns keeps its hand-curated thinking levels."""
+    _anthropic_env(tmp_path, monkeypatch)
+    _anthropic_client(
+        monkeypatch,
+        {
+            "data": [
+                {
+                    # Matches the static `anthropic:claude-sonnet-4-6` id:
+                    # display_name/max_input_tokens come from the API, the
+                    # curated thinking_levels win.
+                    "id": "claude-sonnet-4-6",
+                    "type": "model",
+                    "display_name": "Claude Sonnet 4.6 (API name)",
+                    "lifecycle": "active",
+                    "max_input_tokens": 999_999,
+                },
+            ],
+            "has_more": False,
+        },
+    )
+    models = await anthropic_model_catalog()
+    by_id = {m["id"]: m for m in models}
+    merged = by_id["anthropic:claude-sonnet-4-6"]
+    assert merged["name"] == "Claude Sonnet 4.6 (API name)"
+    assert merged["thinking_levels"] == ["off", "low", "medium", "high"]
+    assert merged["max_context"] == 999_999  # live max_input_tokens wins
+    # Each static id appears exactly once, API-returned ones in dynamic position.
+    assert models[0]["id"] == "anthropic:claude-sonnet-4-6"
+    assert sorted(m["id"] for m in models[1:]) == sorted(
+        i for i in _STATIC_ANTHROPIC_IDS if i != "anthropic:claude-sonnet-4-6"
+    )
+
+
+async def test_anthropic_model_catalog_thinking_capability(tmp_path, monkeypatch):
+    """capabilities.thinking/effort both unsupported -> only 'off' offered."""
+    _anthropic_env(tmp_path, monkeypatch)
+    _unsupported = {"supported": False}
+    _anthropic_client(
+        monkeypatch,
+        {
+            "data": [
+                {
+                    "id": "claude-fast-1",
+                    "type": "model",
+                    "display_name": "Claude Fast 1",
+                    "lifecycle": "active",
+                    "capabilities": {
+                        "thinking": _unsupported,
+                        "effort": _unsupported,
+                    },
+                },
+                {
+                    # No capabilities block -> full normalized scale assumed.
+                    "id": "claude-next-1",
+                    "type": "model",
+                    "lifecycle": "active",
+                },
+            ],
+            "has_more": False,
+        },
+    )
+    models = await anthropic_model_catalog()
+    by_id = {m["id"]: m for m in models}
+    assert by_id["anthropic:claude-fast-1"]["thinking_levels"] == ["off"]
+    assert by_id["anthropic:claude-next-1"]["thinking_levels"] == [
+        "off",
+        "low",
+        "medium",
+        "high",
+    ]
+
+
+async def test_anthropic_model_catalog_offline_falls_back_to_static(
+    tmp_path, monkeypatch
+):
+    """Transport errors, non-200s, and malformed payloads all yield the static list."""
+    _anthropic_env(tmp_path, monkeypatch)
+    static = MODEL_CATALOG["anthropic"]["models"]
+
+    _anthropic_client(monkeypatch, None, error=httpx.ConnectError("refused"))
+    assert await anthropic_model_catalog() == list(static)
+
+    _anthropic_client(monkeypatch, None, error=httpx.ReadTimeout("slow"))
+    assert await anthropic_model_catalog() == list(static)
+
+    # Non-200: raise_for_status throws inside the try block.
+    _anthropic_client(
+        monkeypatch,
+        httpx.HTTPStatusError(
+            "403", request=httpx.Request("GET", "https://x"), response=httpx.Response(403)
+        ),
+    )
+    assert await anthropic_model_catalog() == list(static)
+
+    _anthropic_client(monkeypatch, "not even json-shaped")
+    assert await anthropic_model_catalog() == list(static)
+
+    _anthropic_client(monkeypatch, {"unexpected": "shape"})
+    assert await anthropic_model_catalog() == list(static)
+
+
+async def test_anthropic_model_catalog_no_key_returns_static(tmp_path, monkeypatch):
+    """No anthropic_api_key -> static list, and the HTTP fetch never runs."""
+    _anthropic_env(tmp_path, monkeypatch)
+    monkeypatch.delenv("ANTHROPIC_API_KEY")
+    _anthropic_client(monkeypatch, None, error=httpx.ConnectError("must not be called"))
+    assert await anthropic_model_catalog() == list(MODEL_CATALOG["anthropic"]["models"])
+
+
+def test_models_anthropic_dynamic_in_endpoint(client, monkeypatch):
+    """With a key, GET /api/models serves the anthropic section's dynamic rows."""
+    test_client, _ = client
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-anthropic-key")
+
+    async def dynamic() -> list:
+        return [
+            {
+                "id": "anthropic:claude-opus-5",
+                "name": "Claude Opus 5",
+                "thinking_levels": ["off", "low", "medium", "high"],
+                "max_context": 500_000,
+            },
+        ]
+
+    monkeypatch.setattr("app.agent.models.anthropic_model_catalog", dynamic)
+    catalog = test_client.get("/api/models", headers=AUTH).json()
+    (anthropic,) = [e for e in catalog["providers"] if e["provider"] == "anthropic"]
+    assert anthropic["label"] == "Anthropic"
+    assert [m["id"] for m in anthropic["models"]] == ["anthropic:claude-opus-5"]
 
 
 # ---------------------------------------------------------------------------

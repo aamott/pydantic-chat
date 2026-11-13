@@ -24,6 +24,7 @@ import os
 from typing import TYPE_CHECKING, Any, TypedDict, cast
 
 import httpx
+from anthropic._constants import ANTHROPIC_API_VERSION
 from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.models.google import GoogleModel
 from pydantic_ai.models.ollama import OllamaModel
@@ -54,6 +55,18 @@ GEMINI_MODELS_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
 GEMINI_MODELS_TIMEOUT = 3.0
 """Seconds to wait for the Gemini model list before falling back to the static catalog."""
+
+OPENAI_MODELS_URL = "https://api.openai.com/v1/models"
+"""OpenAI model-listing endpoint (``Authorization: Bearer <api_key>``)."""
+
+OPENAI_MODELS_TIMEOUT = 3.0
+"""Seconds to wait for the OpenAI model list before falling back to the static catalog."""
+
+ANTHROPIC_MODELS_URL = "https://api.anthropic.com/v1/models"
+"""Anthropic model-listing endpoint (``x-api-key`` + ``anthropic-version`` headers)."""
+
+ANTHROPIC_MODELS_TIMEOUT = 3.0
+"""Seconds to wait for the Anthropic model list before falling back to the static catalog."""
 
 THINKING_LEVELS: tuple[str, ...] = ("off", "low", "medium", "high")
 """Normalized thinking levels the model picker offers on every thinking-capable model.
@@ -91,8 +104,11 @@ def _cm(spec: str, name: str, thinking: list[str], max_context: int | None) -> C
 _ALL_THINKING = list(THINKING_LEVELS)
 _NO_OFF = ["low", "medium", "high"]
 
-# Static model-picklist for the hosted providers; Ollama's list is dynamic
-# (`ollama_model_catalog`) and `openai-compatible` has no fixed list (empty).
+# Static model-picklist for the hosted providers, and the fallback/merge
+# source for the live catalogs (`google`/`openai`/`anthropic` each fetch their
+# provider's model list and merge it with these entries). Ollama's list is
+# dynamic (`ollama_model_catalog`) and `openai-compatible` has no fixed list
+# (empty).
 # This is a plain editable dict — add/rename models freely; ids should match
 # pydantic-ai's model profiles (this install knows claude-*-4-8/5, gpt-6.1-*,
 # gemini-4-*). Specs absent here still run via PATCH/`default_model`.
@@ -468,6 +484,219 @@ async def google_model_catalog() -> list[CatalogModel]:
                     else _gemini_thinking_levels(model_name)
                 ),
                 max_context=token_limit if isinstance(token_limit, int) else None,
+            )
+        )
+    # Append hand-curated static flagships the list endpoint didn't return.
+    catalog.extend(m for m in static if m["id"] not in seen)
+    return catalog
+
+
+def _is_openai_chat_model(model_id: str) -> bool:
+    """Whether an OpenAI ``/v1/models`` id is a chat-capable model.
+
+    The list endpoint also returns audio, image, embedding, moderation, and
+    legacy-completions models, so the catalog keeps only the chat families:
+    ``gpt-*``, ``chatgpt-*``, and the o-series (``o`` + a digit, e.g. ``o1``,
+    ``o4-mini``). The digit check drops non-reasoning ids like
+    ``omni-moderation-latest``.
+    """
+    return model_id.startswith(("gpt-", "chatgpt-")) or (
+        model_id.startswith("o") and len(model_id) > 1 and model_id[1].isdigit()
+    )
+
+
+def _openai_thinking_levels(model_id: str) -> list[str]:
+    """Thinking levels for an OpenAI model with no static catalog entry.
+
+    o-series reasoning models can't turn reasoning off, so they get the no-off
+    subset; ``gpt-*``/``chatgpt-*`` chat models take the full normalized scale.
+    Hand-curated :data:`MODEL_CATALOG` levels win whenever an id matches — this
+    is only the fallback for API-only models.
+    """
+    is_reasoning = (
+        model_id.startswith("o") and len(model_id) > 1 and model_id[1].isdigit()
+    )
+    return list(_NO_OFF) if is_reasoning else list(_ALL_THINKING)
+
+
+async def openai_model_catalog() -> list[CatalogModel]:
+    """Every chat-capable OpenAI model the configured key can use, merged with statics.
+
+    Queries ``GET {OPENAI_MODELS_URL}`` with an ``Authorization: Bearer
+    <openai_api_key>`` header and a short timeout — the same pattern as
+    :func:`google_model_catalog`. Any transport error, non-200, malformed
+    payload, or missing key yields the static ``openai`` section of
+    :data:`MODEL_CATALOG`: the hand-curated entries still work, so an OpenAI
+    outage must never break ``GET /api/models``.
+
+    Models are kept only when :func:`_is_openai_chat_model` accepts the id —
+    the endpoint also lists ``dall-e-*``, ``whisper-*``, ``tts-*``,
+    ``text-embedding-*``, moderation, and legacy completions entries. The API
+    returns no display names or context windows, so a matching static entry
+    fills name/thinking/max_context; unlisted rows use the id as the name.
+    Static flagships are appended; ids dedup, dynamic wins.
+    """
+    static = MODEL_CATALOG.get("openai", CatalogProvider(label="", models=[]))["models"]
+    key = get_secret("openai_api_key")
+    if not key:
+        return list(static)
+    try:
+        async with httpx.AsyncClient(timeout=OPENAI_MODELS_TIMEOUT) as client:
+            response = await client.get(
+                OPENAI_MODELS_URL, headers={"Authorization": f"Bearer {key}"}
+            )
+            response.raise_for_status()
+        payload: Any = response.json()
+    except (httpx.HTTPError, ValueError):
+        logger.info(
+            "OpenAI model list unreachable; falling back to the static catalog"
+        )
+        return list(static)
+    rows = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(rows, list):
+        return list(static)
+
+    static_by_id = {m["id"]: m for m in static}
+    catalog: list[CatalogModel] = []
+    seen: set[str] = set()
+    for entry in rows:
+        if not isinstance(entry, dict):
+            continue
+        model_id = entry.get("id")
+        if not (isinstance(model_id, str) and _is_openai_chat_model(model_id)):
+            continue
+        spec = f"openai:{model_id}"
+        if spec in seen:
+            continue
+        seen.add(spec)
+        static_entry = static_by_id.get(spec)
+        catalog.append(
+            CatalogModel(
+                id=spec,
+                name=static_entry["name"] if static_entry else model_id,
+                thinking_levels=(
+                    static_entry["thinking_levels"]
+                    if static_entry
+                    else _openai_thinking_levels(model_id)
+                ),
+                max_context=static_entry["max_context"] if static_entry else None,
+            )
+        )
+    # Append hand-curated static flagships the list endpoint didn't return.
+    catalog.extend(m for m in static if m["id"] not in seen)
+    return catalog
+
+
+def _anthropic_thinking_levels(entry: dict[str, Any]) -> list[str]:
+    """Thinking levels for a Claude model with no static catalog entry.
+
+    The ``capabilities`` block reports ``thinking`` and ``effort`` support;
+    when it names a reasoning capability and all of them report
+    ``supported: false`` the model only gets ``["off"]``. A missing
+    capabilities block falls back to the full normalized scale — every Claude
+    in the static catalog thinks. Hand-curated :data:`MODEL_CATALOG` levels
+    win whenever an id matches.
+    """
+    caps = entry.get("capabilities")
+    if isinstance(caps, dict) and ("thinking" in caps or "effort" in caps):
+        reasoning = (
+            caps.get("thinking"),
+            caps.get("effort"),
+        )
+        supported = any(
+            isinstance(cap, dict) and cap.get("supported") is True
+            for cap in reasoning
+        )
+        if not supported:
+            return ["off"]
+    return list(_ALL_THINKING)
+
+
+async def anthropic_model_catalog() -> list[CatalogModel]:
+    """Every Claude model the configured key can use, merged with static entries.
+
+    Queries ``GET {ANTHROPIC_MODELS_URL}?limit=1000`` with ``x-api-key`` and
+    ``anthropic-version`` headers — the version is pinned to the installed
+    ``anthropic`` SDK's ``ANTHROPIC_API_VERSION`` so the picker speaks exactly
+    the API revision the chat path does — under the same timeout/fallback
+    pattern as :func:`google_model_catalog`. Any transport error, non-200,
+    malformed payload, or missing key yields the static ``anthropic`` section
+    of :data:`MODEL_CATALOG`.
+
+    Rows are kept when ``id`` starts with ``claude`` and ``lifecycle`` is
+    absent or ``"active"`` — ``deprecated``/``retired`` rows and non-Claude
+    account models stay out of the picker. ``display_name`` and
+    ``max_input_tokens`` fill name/max_context (a static entry's name backstops
+    a missing display name); curated ``thinking_levels`` win on matching ids.
+    ``limit=1000`` pulls the whole Claude catalog in one page — the default
+    page size would page newest-last results away.
+    """
+    static = MODEL_CATALOG.get("anthropic", CatalogProvider(label="", models=[]))[
+        "models"
+    ]
+    key = get_secret("anthropic_api_key")
+    if not key:
+        return list(static)
+    try:
+        async with httpx.AsyncClient(timeout=ANTHROPIC_MODELS_TIMEOUT) as client:
+            response = await client.get(
+                ANTHROPIC_MODELS_URL,
+                params={"limit": 1000},
+                headers={
+                    "x-api-key": key,
+                    "anthropic-version": ANTHROPIC_API_VERSION,
+                },
+            )
+            response.raise_for_status()
+        payload: Any = response.json()
+    except (httpx.HTTPError, ValueError):
+        logger.info(
+            "Anthropic model list unreachable; falling back to the static catalog"
+        )
+        return list(static)
+    rows = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(rows, list):
+        return list(static)
+
+    static_by_id = {m["id"]: m for m in static}
+    catalog: list[CatalogModel] = []
+    seen: set[str] = set()
+    for entry in rows:
+        if not isinstance(entry, dict):
+            continue
+        model_id = entry.get("id")
+        lifecycle = entry.get("lifecycle")
+        if not (
+            isinstance(model_id, str)
+            and model_id.startswith("claude")
+            and (lifecycle is None or lifecycle == "active")
+        ):
+            continue
+        spec = f"anthropic:{model_id}"
+        if spec in seen:
+            continue
+        seen.add(spec)
+        display = entry.get("display_name")
+        token_limit = entry.get("max_input_tokens")
+        static_entry = static_by_id.get(spec)
+        catalog.append(
+            CatalogModel(
+                id=spec,
+                name=(
+                    display
+                    if isinstance(display, str) and display
+                    else (static_entry["name"] if static_entry else model_id)
+                ),
+                thinking_levels=(
+                    static_entry["thinking_levels"]
+                    if static_entry
+                    else _anthropic_thinking_levels(entry)
+                ),
+                max_context=(
+                    token_limit
+                    if isinstance(token_limit, int)
+                    else (static_entry["max_context"] if static_entry else None)
+                ),
             )
         )
     # Append hand-curated static flagships the list endpoint didn't return.
