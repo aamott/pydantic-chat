@@ -13,10 +13,10 @@
 import { app } from 'electron'
 import { spawn, execFile, type ChildProcess } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
 import { createWriteStream, type WriteStream } from 'node:fs'
 import { createServer } from 'node:net'
-import { join, resolve } from 'node:path'
+import { delimiter, dirname, join, resolve } from 'node:path'
 import type { BackendInfo, BackendStatus } from '@pydantic-chat/shared'
 
 const HEALTH_POLL_MS = 250
@@ -72,12 +72,86 @@ function rendererOrigin(): string {
   return 'null'
 }
 
-/** Child env: scrubbed of ambient Python config so `uv` picks the project venv. */
+/**
+ * Absolute path of `name` as the ambient PATH resolves it, if any. Used to
+ * grandfather the actual `uv` install into `sanitizedPath` and to spawn `uv`
+ * directly — nonstandard installs (nix, pipx shims, custom prefixes) keep
+ * working without re-admitting every user-writable PATH entry.
+ */
+function resolveBinFromPath(name: string): string | null {
+  const candidates =
+    process.platform === 'win32'
+      ? [`${name}.exe`, `${name}.cmd`, `${name}.bat`, name]
+      : [name]
+  for (const dir of (process.env.PATH ?? '').split(delimiter)) {
+    if (!dir) continue
+    const found = candidates.find((bin) => existsSync(join(dir, bin)))
+    if (found !== undefined) return join(dir, found)
+  }
+  return null
+}
+
+/**
+ * PATH for spawned children (S4036): fixed, system-owned directories plus
+ * the well-known user tool locations the `uv` installers target — never
+ * the ambient PATH wholesale, which on dev shells routinely contains
+ * user-writable dirs that could shadow `uv` with a hostile binary.
+ *
+ * The ambient PATH is still consulted once to locate `uv`'s own directory
+ * and that single dir is appended last: we are about to execute that exact
+ * binary either way, so this preserves exotic install layouts without
+ * widening the trust surface beyond the status quo.
+ */
+function sanitizedPath(): string {
+  const home = app.getPath('home')
+  let dirs: string[]
+  if (process.platform === 'win32') {
+    const root = process.env.SystemRoot ?? 'C:\\Windows'
+    dirs = [
+      join(root, 'System32'),
+      root,
+      join(root, 'System32', 'Wbem'),
+      join(root, 'System32', 'WindowsPowerShell', 'v1.0'),
+      join(home, '.local', 'bin'), // official uv installer default
+      join(home, '.cargo', 'bin'), // rustup-managed installs
+    ]
+    const localAppData = process.env.LOCALAPPDATA
+    if (localAppData) dirs.push(join(localAppData, 'Programs'))
+  } else {
+    dirs = [
+      '/usr/local/bin',
+      '/usr/bin',
+      '/bin',
+      '/usr/sbin',
+      '/sbin',
+      '/opt/homebrew/bin', // Homebrew on Apple Silicon
+      '/home/linuxbrew/.linuxbrew/bin', // Homebrew on Linux
+      join(home, '.local', 'bin'), // official uv installer default
+      join(home, '.cargo', 'bin'), // rustup-managed installs
+    ]
+  }
+  const uvBin = resolveBinFromPath('uv')
+  const uvDir = uvBin === null ? null : dirname(uvBin)
+  if (uvDir !== null && !dirs.includes(uvDir)) dirs.push(uvDir)
+  return dirs.join(delimiter)
+}
+
+/** Absolute path to Windows' taskkill — resolved without consulting PATH. */
+function taskkillPath(): string {
+  const root = process.env.SystemRoot ?? 'C:\\Windows'
+  return join(root, 'System32', 'taskkill.exe')
+}
+
+/**
+ * Child env: scrubbed of ambient Python config so `uv` picks the project
+ * venv, with PATH replaced by the sanitized allowlist (S4036).
+ */
 function buildChildEnv(token: string): NodeJS.ProcessEnv {
   const env = { ...process.env }
   delete env.PYTHONPATH
   delete env.PYTHONHOME
   delete env.VIRTUAL_ENV
+  env.PATH = sanitizedPath()
   env.PYTHONUNBUFFERED = '1'
   env.APP_TOKEN = token
   env.APP_DATA_DIR = app.getPath('userData')
@@ -95,7 +169,9 @@ function signalTree(child: ChildProcess, signal: 'SIGTERM' | 'SIGKILL'): void {
   if (process.platform === 'win32') {
     const args = ['/pid', String(child.pid), '/t']
     if (signal === 'SIGKILL') args.push('/f')
-    execFile('taskkill', args, () => {})
+    // Absolute System32 path — taskkill must not be resolved through a
+    // possibly-writable PATH entry (S4036).
+    execFile(taskkillPath(), args, () => {})
     return
   }
   try {
@@ -226,7 +302,7 @@ export class BackendSidecar {
     if (!app.isPackaged) args.push('--reload')
 
     this.log(`spawn: uv ${args.join(' ')} (cwd=${dir})`)
-    const child = spawn('uv', args, {
+    const child = spawn(resolveBinFromPath('uv') ?? 'uv', args, {
       cwd: dir,
       env: buildChildEnv(this.info!.token),
       detached: process.platform !== 'win32', // process-group leader on POSIX

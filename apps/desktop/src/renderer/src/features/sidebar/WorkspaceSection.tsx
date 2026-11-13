@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import type { Workspace } from '@pydantic-chat/shared'
 import { useChatsStore } from '../../stores/chats'
+import { pathBasename } from '../../lib/paths'
 import { ChatList } from './ChatList'
 
 interface WorkspaceSectionProps {
@@ -37,7 +38,7 @@ export function WorkspaceSection({
   const [open, setOpen] = useState(true)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
 
-  const name = workspace.display_name || basename(workspace.path)
+  const name = workspace.display_name || pathBasename(workspace.path)
   const isActive = workspace.id === activeWorkspaceId
   const Chevron = open ? ChevronDown : ChevronRight
 
@@ -148,8 +149,3 @@ export function WorkspaceSection({
   )
 }
 
-/** Last path segment, for workspaces with no display_name set. */
-function basename(path: string): string {
-  const trimmed = path.replace(/[\\/]+$/, '')
-  return trimmed.split(/[\\/]/).pop() || path
-}

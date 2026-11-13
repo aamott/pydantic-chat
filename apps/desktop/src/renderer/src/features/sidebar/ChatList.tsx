@@ -4,7 +4,7 @@
  * All mutations live in the chats store — this file is presentation plus
  * per-row editing state only.
  */
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Check, Pencil, Trash2, X } from 'lucide-react'
 import type { ChatSummary } from '@pydantic-chat/shared'
 import { formatRelativeTime } from '../../lib/time'
@@ -64,6 +64,13 @@ function ChatRow({
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(chat.title)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const renameInputRef = useRef<HTMLInputElement>(null)
+
+  // Focus the rename field when it mounts — same UX as `autoFocus` without
+  // the attribute (S9379).
+  useEffect(() => {
+    if (editing) renameInputRef.current?.focus()
+  }, [editing])
 
   /** Commit the rename; empty/unchanged titles just close the input. */
   const commitRename = async (): Promise<void> => {
@@ -81,7 +88,7 @@ function ChatRow({
     return (
       <div className="flex items-center gap-1 rounded-md bg-neutral-100 px-2 py-1">
         <input
-          autoFocus
+          ref={renameInputRef}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {

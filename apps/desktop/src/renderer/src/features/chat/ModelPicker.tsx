@@ -349,6 +349,10 @@ export function ModelPicker({
 
           <div
             role="listbox"
+            // Programmatically focusable for the aria-activedescendant
+            // pattern — keyboard nav lives on the search input, so the
+            // listbox stays out of the tab order (S6852).
+            tabIndex={-1}
             aria-label="Chat model"
             onKeyDown={onListKeyDown}
             onMouseLeave={scheduleHide}

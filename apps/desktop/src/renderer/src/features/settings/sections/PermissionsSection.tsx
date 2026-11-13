@@ -76,11 +76,12 @@ export function PermissionsSection(): React.JSX.Element | null {
                 onChange={() => patch('permission_profile', profile.value)}
                 className="mt-1 accent-blue-600"
               />
-              <span>
-                <span className="block text-sm font-medium text-neutral-800 dark:text-neutral-200">
-                  {profile.name}
-                </span>
-                <span className="block text-xs text-neutral-500 dark:text-neutral-400">
+              {/* The name text must sit within label-depth 2 for S6853's
+                  accessible-text check — keep it a direct child of this
+                  span rather than nesting it inside another element. */}
+              <span className="text-sm font-medium text-neutral-800 dark:text-neutral-200">
+                {profile.name}
+                <span className="block text-xs font-normal text-neutral-500 dark:text-neutral-400">
                   {profile.description}
                 </span>
               </span>

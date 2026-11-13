@@ -19,7 +19,7 @@
  * The Coder agent routinely defers several calls in one step, so consecutive
  * pending parts render as one card (`groupApprovals` + `ApprovalGroup`).
  */
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   isToolUIPart,
   type DynamicToolUIPart,
@@ -158,7 +158,14 @@ function ApprovalRow({
   // Local latch against double clicks — once the SDK applies the response the
   // part flips to `approval-responded` and this row unmounts.
   const [sent, setSent] = useState(false)
+  const reasonInputRef = useRef<HTMLInputElement>(null)
   const busy = disabled === true || sent
+
+  // Focus the reason field when it mounts — same UX as `autoFocus` without
+  // the attribute (S9379).
+  useEffect(() => {
+    if (denying) reasonInputRef.current?.focus()
+  }, [denying])
 
   const respond = (approved: boolean): void => {
     if (busy) return
@@ -216,7 +223,7 @@ function ApprovalRow({
           }}
         >
           <input
-            autoFocus
+            ref={reasonInputRef}
             value={reason}
             onChange={(e) => setReason(e.target.value)}
             onKeyDown={(e) => {
