@@ -26,7 +26,7 @@ interface WorkspaceSectionProps {
 
 export function WorkspaceSection({
   workspace,
-}: WorkspaceSectionProps): React.JSX.Element {
+}: Readonly<WorkspaceSectionProps>): React.JSX.Element {
   const activeChatId = useChatsStore((s) => s.activeChatId)
   const activeWorkspaceId = useChatsStore((s) => s.activeWorkspaceId)
   const selectChat = useChatsStore((s) => s.selectChat)

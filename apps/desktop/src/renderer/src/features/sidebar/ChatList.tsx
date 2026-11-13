@@ -61,7 +61,7 @@ function ChatRow({
   onSelect,
   onRename,
   onDelete,
-}: ChatRowProps): React.JSX.Element {
+}: Readonly<ChatRowProps>): React.JSX.Element {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(chat.title)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
@@ -139,7 +139,6 @@ function ChatRow({
 
   return (
     <div
-      role="listitem"
       className={`group flex items-center gap-1.5 rounded-md px-2 py-1 text-xs ${
         active
           ? 'bg-blue-50 font-medium text-blue-700'
@@ -186,12 +185,12 @@ function RowButton({
   tone = 'neutral',
   onClick,
   children,
-}: {
+}: Readonly<{
   label: string
   tone?: 'neutral' | 'danger'
   onClick: () => void
   children: React.ReactNode
-}): React.JSX.Element {
+}>): React.JSX.Element {
   return (
     <button
       type="button"
