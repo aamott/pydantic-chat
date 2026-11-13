@@ -290,12 +290,12 @@ function ProfileRow({
   busy,
   onToggle,
   onDuplicate,
-}: {
+}: Readonly<{
   profile: ToolProfile
   busy: boolean
   onToggle: () => void
   onDuplicate: () => void
-}): React.JSX.Element {
+}>): React.JSX.Element {
   return (
     <div className="flex items-center gap-2 px-3 py-2">
       <button
@@ -373,7 +373,7 @@ function ProfileEditor({
   onClose,
   onDelete,
   onDuplicate,
-}: ProfileEditorProps): React.JSX.Element {
+}: Readonly<ProfileEditorProps>): React.JSX.Element {
   const readOnly = draft.readOnly
   const toolNames = (catalog ?? [])
     .filter((e) => !e.prefix)
@@ -405,15 +405,15 @@ function ProfileEditor({
     entries: (catalog ?? []).filter((e) => e.group === group),
   })).filter((g) => g.entries.length > 0)
 
+  let title = `Edit ${draft.name}`
+  if (draft.id === null) title = 'New profile'
+  else if (readOnly) title = `${draft.name} (built-in)`
+
   return (
     <div className="space-y-3 px-3 py-3">
       <div className="flex items-center justify-between">
         <span className="text-sm font-medium text-neutral-800 dark:text-neutral-200">
-          {draft.id === null
-            ? 'New profile'
-            : readOnly
-              ? `${draft.name} (built-in)`
-              : `Edit ${draft.name}`}
+          {title}
         </span>
         <button
           type="button"
@@ -502,8 +502,10 @@ function ProfileEditor({
             disabled={readOnly}
             className="mt-0.5 accent-blue-600"
           />
-          <span className="text-sm text-neutral-700 dark:text-neutral-300">
-            Read-only workspace
+          <span>
+            <span className="block text-sm text-neutral-700 dark:text-neutral-300">
+              Read-only workspace
+            </span>
             <span className="block text-xs text-neutral-400">
               Mount the workspace read-only so file writes fail outright.
             </span>
@@ -681,13 +683,13 @@ function MasterCheckbox({
   checked,
   disabled,
   onSetAll,
-}: {
+}: Readonly<{
   label: string
   names: readonly string[]
   checked: ReadonlySet<string>
   disabled: boolean
   onSetAll: (checked: boolean) => void
-}): React.JSX.Element {
+}>): React.JSX.Element {
   const all = names.every((name) => checked.has(name))
   const some = names.some((name) => checked.has(name))
   return (
@@ -721,14 +723,14 @@ function CheckItem({
   checked,
   disabled,
   onToggle,
-}: {
+}: Readonly<{
   name: string
   hint?: string
   badge?: string
   checked: boolean
   disabled: boolean
   onToggle: () => void
-}): React.JSX.Element {
+}>): React.JSX.Element {
   return (
     <li>
       <label
