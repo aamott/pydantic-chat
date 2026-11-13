@@ -86,7 +86,7 @@ export function ProfilePicker({
           onClose={() => setOpen(false)}
           className="w-64"
         >
-          <div role="group" aria-label="Permission profile" className="p-1">
+          <div className="p-1">
             {/* Inherit option — null clears the chat override. */}
             <OptionRow
               name="Inherit"

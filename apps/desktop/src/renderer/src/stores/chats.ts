@@ -29,11 +29,21 @@ export function getChat(chatId: string): AppChat | undefined {
   return chatRegistry.get(chatId)
 }
 
+/** Register (or reuse) a Chat instance for `chatId`. */
+function ensureChat(chatId: string): AppChat {
+  let chat = chatRegistry.get(chatId)
+  if (!chat) {
+    chat = makeChat(chatId)
+    chatRegistry.set(chatId, chat)
+  }
+  return chat
+}
+
 /** Fields `PATCH /api/chats/{id}` accepts besides `title` (rename). */
 export interface ChatUpdate {
   model?: string | null
   thinking?: string | null
-  /** `bypass | smart | manual | read-only`, or null to inherit. */
+  /** Any tool-profile id (builtin or custom), or null to inherit. */
   permission_profile?: string | null
 }
 
@@ -101,16 +111,6 @@ interface ChatsState {
 }
 
 export const useChatsStore = create<ChatsState>()((set, get) => {
-  /** Register (or reuse) a Chat instance for `chatId`. */
-  function ensureChat(chatId: string): AppChat {
-    let chat = chatRegistry.get(chatId)
-    if (!chat) {
-      chat = makeChat(chatId)
-      chatRegistry.set(chatId, chat)
-    }
-    return chat
-  }
-
   /**
    * Pull the persisted transcript into the `Chat` instance on first open.
    * Skipped while the instance is mid-stream — its in-flight state is newer
