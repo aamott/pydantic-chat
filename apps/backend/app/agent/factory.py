@@ -329,10 +329,24 @@ def build_run_kwargs(
     judge_model = _setting(chat_settings, "judge_model")
 
     read_only = profile == "read-only"
+    # Lazy: app.mcp_servers -> app.api.schemas -> this module would be a cycle.
+    # The MCP layer itself imports fastmcp lazily too, so a build with no
+    # servers configured pays nothing.
+    from app.mcp_servers import build_mcp_capabilities, parse_mcp_servers
+
     capabilities: list[AbstractCapability] = [
         LocalWorkspace(root, read_only=read_only),
         *resolve_permission_capabilities(
             profile, lists, judge_model=judge_model, fallback_model=model
+        ),
+        # MCP toolsets land in the capability list like everything else.
+        # `Permissions` never sees MCP tools (it gates only file-write kinds
+        # and shell-command tools), so every non-bypass profile wraps them in
+        # `ApprovalRequiredToolset` — their calls join the same deferred
+        # approval flow (`smart`'s ApprovalReviewer judges them too).
+        *build_mcp_capabilities(
+            parse_mcp_servers(_setting(chat_settings, "mcp_servers")),
+            gate=profile != "bypass",
         ),
         _planning_capability(_setting(chat_settings, "chat_id")),
         # Emits the `data-run-meta` chunk so the UI can badge the effective

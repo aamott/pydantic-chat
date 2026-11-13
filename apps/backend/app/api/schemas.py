@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.agent.factory import PermissionProfile
 from app.db import ChatSummary, Workspace
@@ -201,6 +201,58 @@ class SettingsPatch(BaseModel):
     denied_patterns: list[str] | None = None
     ollama_base_url: str | None = None
     judge_model: str | None = None
+
+
+class MCPServerSpec(BaseModel):
+    """One registered MCP server — a row of the ``mcp_servers`` settings list.
+
+    ``transport`` picks the required fields: ``stdio`` launches ``command``
+    (with ``args``/``env``) through FastMCP's ``StdioTransport``; ``http``
+    connects to ``url`` (with optional ``headers``) through the streamable-HTTP
+    transport ``MCPToolset`` derives from the URL. ``env`` and ``headers`` may
+    carry secrets — they are stored and returned but never logged. ``name``
+    addresses the server in ``/api/mcp-servers/{name}``, so slashes are
+    rejected.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, pattern=r"^[^/]+$")
+    transport: Literal["stdio", "http"]
+    command: str | None = None
+    args: list[str] = Field(default_factory=list)
+    env: dict[str, str] | None = None
+    url: str | None = None
+    headers: dict[str, str] | None = None
+    enabled: bool = True
+
+    @model_validator(mode="after")
+    def _require_transport_fields(self) -> MCPServerSpec:
+        if self.transport == "stdio" and not (self.command and self.command.strip()):
+            raise ValueError("stdio MCP servers require a 'command'")
+        if self.transport == "http" and not (self.url and self.url.strip()):
+            raise ValueError("http MCP servers require a 'url'")
+        return self
+
+
+class MCPServerPatch(BaseModel):
+    """``PATCH /api/mcp-servers/{name}`` body — merge semantics.
+
+    Unset fields keep their stored values; an explicit ``null`` clears an
+    optional field. ``transport`` itself is immutable (patching it would make
+    half the stored fields meaningless) — delete and re-add to change it.
+    The merged result is re-validated as an :class:`MCPServerSpec`.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1, pattern=r"^[^/]+$")
+    command: str | None = None
+    args: list[str] | None = None
+    env: dict[str, str] | None = None
+    url: str | None = None
+    headers: dict[str, str] | None = None
+    enabled: bool | None = None
 
 
 class SettingValueIn(BaseModel):

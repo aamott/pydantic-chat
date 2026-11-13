@@ -65,6 +65,46 @@ export interface ProviderStatus {
 }
 
 /* ------------------------------------------------------------------ */
+/* MCP servers API contract (/api/mcp-servers)                         */
+/* ------------------------------------------------------------------ */
+
+/** Transport kinds the backend can build a pydantic-ai `MCPToolset` for. */
+export type McpTransport = 'stdio' | 'http'
+
+/**
+ * One registered MCP server (`GET /api/mcp-servers` row, `POST` body).
+ * `stdio` launches `command` with `args`/`env`; `http` connects to `url`
+ * with optional `headers`. `env`/`headers` may hold secrets — they are
+ * stored server-side and echoed back for editing, never logged.
+ */
+export interface McpServer {
+  /** Unique key — also the tool-name prefix and PATCH/DELETE path segment. */
+  name: string
+  transport: McpTransport
+  command?: string | null
+  args?: string[]
+  env?: Record<string, string> | null
+  url?: string | null
+  headers?: Record<string, string> | null
+  enabled: boolean
+}
+
+/**
+ * `PATCH /api/mcp-servers/{name}` body — merge semantics; unset fields keep
+ * their stored values, an explicit `null` clears an optional field.
+ * `transport` is immutable (delete + re-add to change it).
+ */
+export interface McpServerPatch {
+  name?: string
+  command?: string | null
+  args?: string[] | null
+  env?: Record<string, string> | null
+  url?: string | null
+  headers?: Record<string, string> | null
+  enabled?: boolean
+}
+
+/* ------------------------------------------------------------------ */
 /* Models API contract (GET /api/models)                               */
 /* ------------------------------------------------------------------ */
 

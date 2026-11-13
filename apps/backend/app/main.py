@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from app.api import chat, chats, files, models, settings, workspaces
+from app.api import chat, chats, files, mcp, models, settings, workspaces
 from app.db import ChatStore
 
 BEARER = HTTPBearer(auto_error=False)
@@ -63,6 +63,7 @@ def create_app() -> FastAPI:
     app.include_router(files.router, dependencies=[Depends(_check_auth)])
     app.include_router(chat.router, dependencies=[Depends(_check_auth)])
     app.include_router(settings.router, dependencies=[Depends(_check_auth)])
+    app.include_router(mcp.router, dependencies=[Depends(_check_auth)])
     app.include_router(models.router, dependencies=[Depends(_check_auth)])
 
     return app
