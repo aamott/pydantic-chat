@@ -241,10 +241,12 @@ def test_read_only_profile_has_no_shell(tmp_path):
     caps = resolve_permission_capabilities("read-only")
     all_leaves = [leaf for cap in caps for leaf in _leaf_capabilities(cap)]
     file_systems = [c for c in all_leaves if isinstance(c, FileSystem)]
-    assert file_systems and all(fs.read_only for fs in file_systems)
+    assert file_systems
+    assert all(fs.read_only for fs in file_systems)
     assert not any(isinstance(c, Shell) for c in all_leaves)
     permissions = [c for c in caps if isinstance(c, Permissions)]
-    assert permissions and permissions[0].mode == "read-only"
+    assert permissions
+    assert permissions[0].mode == "read-only"
 
 
 def test_deny_list_passes_through_to_shell():
@@ -253,7 +255,8 @@ def test_deny_list_passes_through_to_shell():
     )
     coder = next(c for c in caps if isinstance(c, Coder))
     shells = [c for c in _leaf_capabilities(coder) if isinstance(c, Shell)]
-    assert shells and set(shells[0].denied_commands) == {"rm", "sudo"}
+    assert shells
+    assert set(shells[0].denied_commands) == {"rm", "sudo"}
 
 
 def test_allow_list_filters_denied_commands():
@@ -270,20 +273,23 @@ def test_allow_list_filters_denied_commands():
 def test_bypass_profile_full_permissions():
     caps = resolve_permission_capabilities("bypass")
     permissions = [c for c in caps if isinstance(c, Permissions)]
-    assert permissions and permissions[0].mode == "full"
+    assert permissions
+    assert permissions[0].mode == "full"
 
 
 def test_unknown_profile_falls_back_to_manual():
     caps = resolve_permission_capabilities("bogus")
     permissions = [c for c in caps if isinstance(c, Permissions)]
-    assert permissions and permissions[0].mode == "read-only"
+    assert permissions
+    assert permissions[0].mode == "read-only"
 
 
 def test_smart_profile_falls_back_to_manual_without_judge():
     caps = resolve_permission_capabilities("smart")
     permissions = [c for c in caps if isinstance(c, Permissions)]
     # No anthropic key for the default haiku judge -> manual fallback.
-    assert permissions and permissions[0].mode == "read-only"
+    assert permissions
+    assert permissions[0].mode == "read-only"
 
 
 def test_smart_profile_uses_given_judge_model():
@@ -296,7 +302,8 @@ def test_smart_profile_uses_given_judge_model():
     assert reviewer is not None, "smart profile built no ApprovalReviewer"
     assert reviewer.model is judge
     permissions = [c for c in caps if isinstance(c, Permissions)]
-    assert permissions and permissions[0].mode == "auto"
+    assert permissions
+    assert permissions[0].mode == "auto"
 
 
 def test_build_run_kwargs_smart_defaults_judge_to_run_model(tmp_path):
@@ -323,7 +330,8 @@ def test_build_run_kwargs_smart_defaults_judge_to_run_model(tmp_path):
     )
     assert reviewer.model is kwargs["model"]  # the run's own resolved model
     permissions = [c for c in capabilities if isinstance(c, Permissions)]
-    assert permissions and permissions[0].mode == "auto"
+    assert permissions
+    assert permissions[0].mode == "auto"
 
 
 def test_build_run_kwargs_explicit_judge_model_wins(tmp_path):

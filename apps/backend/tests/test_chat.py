@@ -301,7 +301,8 @@ def test_mid_chat_profile_switch_changes_next_run_capabilities(
     assert first.status_code == 200
     assert not any(isinstance(c, ApprovalReviewer) for c in built[-1])
     permissions = [c for c in built[-1] if isinstance(c, Permissions)]
-    assert permissions and permissions[0].mode == "read-only"
+    assert permissions
+    assert permissions[0].mode == "read-only"
 
     # The mid-conversation switch the user reported.
     patched = test_client.patch(
@@ -323,7 +324,8 @@ def test_mid_chat_profile_switch_changes_next_run_capabilities(
         "smart profile still built manual capabilities on the next run"
     )
     permissions = [c for c in built[-1] if isinstance(c, Permissions)]
-    assert permissions and permissions[0].mode == "auto"
+    assert permissions
+    assert permissions[0].mode == "auto"
 
 
 async def test_run_settings_workspace_profile_override(tmp_path, monkeypatch):
@@ -883,7 +885,8 @@ async def test_approval_resubmit_executes_deferred_call(client, monkeypatch):
 
     # The approved shell call actually ran: its output streamed back.
     outputs = [e for e in events if e["type"] == "tool-output-available"]
-    assert outputs and outputs[0]["toolCallId"] == tool_call_id
+    assert outputs
+    assert outputs[0]["toolCallId"] == tool_call_id
     text = "".join(
         event.get("delta", "") for event in events if event["type"] == "text-delta"
     )
