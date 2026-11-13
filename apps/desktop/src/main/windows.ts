@@ -78,10 +78,11 @@ export function openSettingsWindow(info: BackendInfo): BrowserWindow {
 }
 
 export function loadMainRenderer(win: BrowserWindow): void {
+  if (win.isDestroyed()) return
   if (process.env.ELECTRON_RENDERER_URL) {
-    void win.loadURL(process.env.ELECTRON_RENDERER_URL)
+    void win.loadURL(process.env.ELECTRON_RENDERER_URL).catch(() => {})
   } else {
-    void win.loadFile(join(__dirname, '../renderer/index.html'))
+    void win.loadFile(join(__dirname, '../renderer/index.html')).catch(() => {})
   }
 }
 
@@ -98,16 +99,18 @@ const page = (title: string, body: string): string =>
 
 /** Shown while the sidecar boots — swapped for the real renderer on ready. */
 export function loadLoadingPage(win: BrowserWindow): void {
-  void win.loadURL(page('pydantic-chat', 'Starting backend…'))
+  if (win.isDestroyed()) return
+  void win.loadURL(page('pydantic-chat', 'Starting backend…')).catch(() => {})
 }
 
 /** Terminal error state when the backend fails after all retries. */
 export function showBackendError(win: BrowserWindow, message: string): void {
+  if (win.isDestroyed()) return
   void win.loadURL(
     page(
       'Backend unavailable',
       `${message} — restart the app to retry. ` +
         `Logs: see backend.log under the app's logs directory.`,
     ),
-  )
+  ).catch(() => {})
 }

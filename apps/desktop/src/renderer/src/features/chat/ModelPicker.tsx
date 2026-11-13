@@ -1,7 +1,15 @@
 /**
  * Composer model picker: a button showing the chat's current model short
  * name that opens an anchored-above popover listing every model across the
- * configured providers (`GET /api/models`, flattened).
+ * configured providers (`GET /api/models`).
+ *
+ * The list is grouped under sticky provider headers (badge + label) in
+ * catalog order, behind an autofocused filter input: whitespace-separated
+ * tokens must each substring-match the model name, provider label, or spec
+ * id (case-insensitive); empty groups drop out. The chat's current model is
+ * highlighted while unfiltered — typing highlights the first match,
+ * ArrowUp/Down move the highlight, Enter selects it, Escape clears a
+ * non-empty filter then (empty) closes the popover.
  *
  * Each row carries a provider badge (colored initial — no brand icons), the
  * model name, and a grayed thinking level: the level that would apply if the
@@ -24,7 +32,7 @@ import {
   useState,
 } from 'react'
 import type { ModelInfo, ModelProviderGroup } from '@pydantic-chat/shared'
-import { Check, ChevronUp } from 'lucide-react'
+import { Check, ChevronUp, Search, X } from 'lucide-react'
 import {
   findChatSummary,
   useChatsStore,
@@ -55,6 +63,11 @@ interface Row {
   provider: ModelProviderGroup
   model: ModelInfo
 }
+
+/** Rendered list entries: provider headers interleaved with model rows. */
+type ListItem =
+  | { type: 'header'; provider: ModelProviderGroup }
+  | { type: 'row'; row: Row; index: number }
 
 /** Sidebar geometry captured from a hovered/focused row element. */
 interface FlyoutAnchor {
@@ -92,10 +105,14 @@ export function ModelPicker({
 
   const [open, setOpen] = useState(false)
   const buttonRef = useRef<HTMLButtonElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
   const rowRefs = useRef<(HTMLButtonElement | null)[]>([])
   /** model id → level the user picked in the flyout (not yet applied). */
   const [pending, setPending] = useState<Record<string, string>>({})
   const [flyout, setFlyout] = useState<FlyoutAnchor | null>(null)
+  const [query, setQuery] = useState('')
+  /** Index into `visibleRows` of the keyboard/hover-active row. */
+  const [highlighted, setHighlighted] = useState(0)
   const hideTimer = useRef<number | undefined>(undefined)
 
   useEffect(() => {
@@ -107,26 +124,63 @@ export function ModelPicker({
     provider.models.map((model) => ({ provider, model })),
   )
 
-  /* Seed pending overrides with the chat's stored thinking when the popover
-   * opens, so the flyout dropdown shows the persisted level for the current
-   * model instead of "Default". */
+  /* Filter: every whitespace-separated token must substring-match the
+   * model name, provider label, or spec id. Empty-token queries (blank
+   * input) match everything. Provider groups that filter to nothing are
+   * dropped entirely. */
+  const tokens = query.toLowerCase().split(/\s+/).filter(Boolean)
+  const matches = (row: Row): boolean =>
+    tokens.every(
+      (token) =>
+        row.model.name.toLowerCase().includes(token) ||
+        row.provider.label.toLowerCase().includes(token) ||
+        row.model.id.toLowerCase().includes(token),
+    )
+  const items: ListItem[] = []
+  const visibleRows: Row[] = []
+  for (const provider of providers) {
+    const groupRows = provider.models
+      .map((model) => ({ provider, model }))
+      .filter(matches)
+    if (groupRows.length === 0) continue
+    items.push({ type: 'header', provider })
+    for (const row of groupRows) {
+      items.push({ type: 'row', row, index: visibleRows.length })
+      visibleRows.push(row)
+    }
+  }
+  /** Highlight clamped into range — the list can shrink under the index. */
+  const activeIndex = Math.min(highlighted, Math.max(visibleRows.length - 1, 0))
+
+  /* On open: seed pending overrides with the chat's stored thinking so the
+   * flyout dropdown shows the persisted level for the current model instead
+   * of "Default"; reset the filter + highlight and focus the search input. */
   useLayoutEffect(() => {
     if (open) {
       setPending(chat?.thinking ? { [effectiveModel]: chat.thinking } : {})
       setFlyout(null)
+      setQuery('')
+      rowRefs.current = []
+      const index = rows.findIndex((r) => r.model.id === effectiveModel)
+      setHighlighted(index >= 0 ? index : 0)
+      inputRef.current?.focus()
     }
     // chat?.thinking intentionally read once per open, not live-edited.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
-  /* Focus the active row on open so arrow-key nav starts in place. */
+  /* Filter changes reset the active row: the current model when the input
+   * is empty, the first match while filtering. A still-open flyout anchors
+   * to a row that may have filtered out, so it closes too. */
   useLayoutEffect(() => {
     if (!open) return
     const index = rows.findIndex((r) => r.model.id === effectiveModel)
-    rowRefs.current[index >= 0 ? index : 0]?.focus()
-    // rows/effectiveModel change between opens, not while open.
+    setHighlighted(tokens.length === 0 ? Math.max(index, 0) : 0)
+    setFlyout(null)
+    // effectiveModel/rows read live; providers in deps so a late catalog
+    // load still lands the unfiltered highlight on the current model.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open])
+  }, [open, query, providers])
 
   /** Pending override → chat's level (current model) → model default. */
   const levelFor = (model: ModelInfo): string | null =>
@@ -176,8 +230,50 @@ export function ModelPicker({
     }
   }
 
-  /* Arrow keys move focus between row buttons; Enter is a native button
-   * click. Escape is handled globally by `Popover`. */
+  const clearQuery = (): void => {
+    setQuery('')
+    inputRef.current?.focus()
+  }
+
+  /** Move the active row by `delta`, scroll it into view, and show its
+   * flyout — the same preview hover/focus would have produced. */
+  const moveHighlight = (delta: number): void => {
+    if (visibleRows.length === 0) return
+    const next = Math.min(
+      Math.max(activeIndex + delta, 0),
+      visibleRows.length - 1,
+    )
+    setHighlighted(next)
+    const el = rowRefs.current[next]
+    if (el) {
+      el.scrollIntoView({ block: 'nearest' })
+      showFlyout(visibleRows[next], el)
+    }
+  }
+
+  /* Search input keys: arrows move the highlight, Enter selects it, and
+   * Escape clears a non-empty filter — an empty-filter Escape is left to
+   * propagate so `Popover`'s global handler closes the dialog. */
+  const onSearchKeyDown = (e: React.KeyboardEvent): void => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      moveHighlight(e.key === 'ArrowDown' ? 1 : -1)
+    } else if (e.key === 'Enter') {
+      const row = visibleRows[activeIndex]
+      if (row) {
+        e.preventDefault()
+        selectModel(row)
+      }
+    } else if (e.key === 'Escape' && query !== '') {
+      e.preventDefault()
+      e.stopPropagation()
+      clearQuery()
+    }
+  }
+
+  /* Arrow keys move DOM focus between row buttons (focus also triggers the
+   * flyout via onFocus); Enter is a native button click. Escape is handled
+   * globally by `Popover`. */
   const onListKeyDown = (e: React.KeyboardEvent): void => {
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
     e.preventDefault()
@@ -188,7 +284,8 @@ export function ModelPicker({
     const next =
       current < 0
         ? 0
-        : Math.min(Math.max(current + delta, 0), rows.length - 1)
+        : Math.min(Math.max(current + delta, 0), visibleRows.length - 1)
+    setHighlighted(next)
     rowRefs.current[next]?.focus()
   }
 
@@ -215,6 +312,41 @@ export function ModelPicker({
           align="end"
           className="w-64"
         >
+          <div className="border-b border-neutral-100 p-1.5">
+            <div className="relative">
+              <Search
+                aria-hidden
+                className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400"
+              />
+              <input
+                ref={inputRef}
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={onSearchKeyDown}
+                placeholder="Filter models…"
+                aria-label="Filter models"
+                aria-activedescendant={
+                  visibleRows.length > 0
+                    ? `model-picker-option-${activeIndex}`
+                    : undefined
+                }
+                spellCheck={false}
+                className="w-full rounded-md border border-neutral-200 py-1 pl-7 pr-6 text-xs outline-none placeholder:text-neutral-400 focus:border-blue-400"
+              />
+              {query !== '' && (
+                <button
+                  type="button"
+                  onClick={clearQuery}
+                  aria-label="Clear model filter"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-0.5 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+
           <div
             role="listbox"
             aria-label="Chat model"
@@ -222,52 +354,51 @@ export function ModelPicker({
             onMouseLeave={scheduleHide}
             className="max-h-80 overflow-y-auto p-1"
           >
-            {rows.length === 0 && (
+            {visibleRows.length === 0 && (
               <p className="px-2.5 py-3 text-xs text-neutral-400">
-                {modelsError ??
-                  'No configured model providers — add an API key in Settings.'}
+                {providers.length === 0
+                  ? (modelsError ??
+                    'No configured model providers — add an API key in Settings.')
+                  : 'No models match.'}
               </p>
             )}
-            {rows.map((row, index) => {
-              const selected = row.model.id === effectiveModel
-              const level = levelFor(row.model) ?? 'default'
-              return (
-                <button
-                  key={row.model.id}
-                  ref={(el) => {
-                    rowRefs.current[index] = el
-                  }}
-                  type="button"
-                  role="option"
-                  aria-selected={selected}
-                  onClick={() => selectModel(row)}
-                  onMouseEnter={(e) => showFlyout(row, e.currentTarget)}
-                  onFocus={(e) => showFlyout(row, e.currentTarget)}
-                  title={row.model.id}
-                  className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs hover:bg-neutral-100 focus:bg-neutral-100 focus:outline-none ${
-                    selected ? 'text-neutral-900' : 'text-neutral-700'
-                  }`}
+            {items.map((item) =>
+              item.type === 'header' ? (
+                <div
+                  key={`provider-${item.provider.provider}`}
+                  className="sticky top-0 z-10 flex items-center gap-1.5 bg-white px-2.5 pb-1 pt-1.5"
                 >
                   <span
                     aria-hidden
-                    className={`flex h-4 w-4 shrink-0 items-center justify-center rounded text-[10px] font-semibold text-white ${
-                      PROVIDER_COLORS[row.provider.provider] ?? FALLBACK_BADGE
+                    className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded text-[9px] font-semibold text-white ${
+                      PROVIDER_COLORS[item.provider.provider] ??
+                      FALLBACK_BADGE
                     }`}
                   >
-                    {row.provider.label.charAt(0).toUpperCase() || '◆'}
+                    {item.provider.label.charAt(0).toUpperCase() || '◆'}
                   </span>
-                  <span className="min-w-0 flex-1 truncate">
-                    {row.model.name}
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-neutral-400">
+                    {item.provider.label}
                   </span>
-                  {selected && (
-                    <Check className="h-3.5 w-3.5 shrink-0 text-blue-600" />
-                  )}
-                  <span className="shrink-0 text-[11px] text-neutral-400">
-                    {level}
-                  </span>
-                </button>
-              )
-            })}
+                </div>
+              ) : (
+                <ModelRow
+                  key={item.row.model.id}
+                  item={item}
+                  selected={item.row.model.id === effectiveModel}
+                  active={item.index === activeIndex}
+                  level={levelFor(item.row.model) ?? 'default'}
+                  onSelect={selectModel}
+                  onActivate={(row, el, index) => {
+                    setHighlighted(index)
+                    showFlyout(row, el)
+                  }}
+                  registerRef={(index, el) => {
+                    rowRefs.current[index] = el
+                  }}
+                />
+              ),
+            )}
           </div>
         </Popover>
       )}
@@ -282,6 +413,66 @@ export function ModelPicker({
         />
       )}
     </>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/* Model row                                                           */
+/* ------------------------------------------------------------------ */
+
+interface ModelRowProps {
+  item: Extract<ListItem, { type: 'row' }>
+  /** The chat's current model — gets the Check. */
+  selected: boolean
+  /** Keyboard/hover-highlighted row (the input's activedescendant). */
+  active: boolean
+  /** Effective thinking level shown grayed on the right. */
+  level: string
+  onSelect: (row: Row) => void
+  /** Hover or DOM focus — syncs the highlight and opens the flyout. */
+  onActivate: (row: Row, el: HTMLElement, index: number) => void
+  registerRef: (index: number, el: HTMLButtonElement | null) => void
+}
+
+function ModelRow({
+  item,
+  selected,
+  active,
+  level,
+  onSelect,
+  onActivate,
+  registerRef,
+}: ModelRowProps): React.JSX.Element {
+  const { row, index } = item
+  return (
+    <button
+      id={`model-picker-option-${index}`}
+      ref={(el) => registerRef(index, el)}
+      type="button"
+      role="option"
+      aria-selected={selected}
+      onClick={() => onSelect(row)}
+      onMouseEnter={(e) => onActivate(row, e.currentTarget, index)}
+      onFocus={(e) => onActivate(row, e.currentTarget, index)}
+      title={row.model.id}
+      className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs focus:outline-none ${
+        active ? 'bg-neutral-100' : ''
+      } hover:bg-neutral-100 focus:bg-neutral-100 ${
+        selected ? 'text-neutral-900' : 'text-neutral-700'
+      }`}
+    >
+      <span
+        aria-hidden
+        className={`flex h-4 w-4 shrink-0 items-center justify-center rounded text-[10px] font-semibold text-white ${
+          PROVIDER_COLORS[row.provider.provider] ?? FALLBACK_BADGE
+        }`}
+      >
+        {row.provider.label.charAt(0).toUpperCase() || '◆'}
+      </span>
+      <span className="min-w-0 flex-1 truncate">{row.model.name}</span>
+      {selected && <Check className="h-3.5 w-3.5 shrink-0 text-blue-600" />}
+      <span className="shrink-0 text-[11px] text-neutral-400">{level}</span>
+    </button>
   )
 }
 

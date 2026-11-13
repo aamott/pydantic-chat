@@ -25,7 +25,7 @@ let backendInfo: BackendInfo | null = null
 
 function broadcast(channel: string, payload: unknown): void {
   for (const win of BrowserWindow.getAllWindows()) {
-    win.webContents.send(channel, payload)
+    if (!win.isDestroyed()) win.webContents.send(channel, payload)
   }
 }
 
