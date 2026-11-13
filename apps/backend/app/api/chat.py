@@ -388,9 +388,13 @@ async def _run_settings(
 
     App settings come first — the KV table stores strings, so JSON-typed values
     (the allow/deny lists) decode back while plain scalars pass through. The
-    workspace's ``permission_profile`` then overrides the global value when set
-    (``NULL`` inherits), and the resolved ``provider:model`` spec plus the
-    ``chat_id`` (which scopes the ``Planning`` store) overlay everything.
+    merge order for the per-run overrides is chat > workspace > global:
+    ``permission_profile`` falls through each ``NULL`` to the next layer
+    (``build_run_kwargs`` then falls back to :data:`DEFAULT_PERMISSION_PROFILE`),
+    ``model`` resolves via :func:`resolve_model_name` (chat -> default_model ->
+    :data:`DEFAULT_MODEL`), and ``thinking`` is the chat's normalized level or
+    ``None``. ``chat_id`` (which scopes the ``Planning`` store) overlays
+    everything.
     """
     settings: dict[str, Any] = {
         key: _decode_setting(value)
@@ -398,7 +402,10 @@ async def _run_settings(
     }
     if workspace.permission_profile:
         settings["permission_profile"] = workspace.permission_profile
+    if chat.permission_profile:
+        settings["permission_profile"] = chat.permission_profile
     settings["model"] = await resolve_model_name(chat, store)
+    settings["thinking"] = chat.thinking
     settings["chat_id"] = chat.id
     return settings
 

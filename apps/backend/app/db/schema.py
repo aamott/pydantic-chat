@@ -62,4 +62,12 @@ MIGRATIONS: tuple[str, ...] = (
     """
     ALTER TABLE workspaces ADD COLUMN permission_profile TEXT;
     """,
+    # Per-chat overrides feeding the model picker: `thinking` is the normalized
+    # level ('off'|'low'|'medium'|'high', free-form tolerated for uncatalogued
+    # models) and `permission_profile` one of the four profiles. Both NULL =
+    # inherit (thinking -> provider default; profile -> workspace -> global).
+    """
+    ALTER TABLE chats ADD COLUMN thinking TEXT;
+    ALTER TABLE chats ADD COLUMN permission_profile TEXT;
+    """,
 )

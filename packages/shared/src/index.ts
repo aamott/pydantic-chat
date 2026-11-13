@@ -6,6 +6,8 @@ export interface Workspace {
   display_name: string
   last_chat_id: string | null
   last_opened_at: number
+  /** Per-workspace permission override; null/absent inherits the global setting. */
+  permission_profile?: string | null
   missing?: boolean
   chats?: ChatSummary[]
 }
@@ -15,6 +17,15 @@ export interface ChatSummary {
   workspace_id: string
   title: string
   updated_at: number
+  /**
+   * Per-chat `provider:model` override; null/absent uses the settings
+   * default. `thinking`/`permission_profile` are the matching per-chat
+   * overrides — null means "inherit". Optional because pre-migration
+   * backends may omit them entirely; treat absent as null.
+   */
+  model?: string | null
+  thinking?: string | null
+  permission_profile?: string | null
 }
 
 /* ------------------------------------------------------------------ */
@@ -49,6 +60,34 @@ export interface ProviderStatus {
   configured: boolean
   has_key: boolean
   source: 'file' | 'env' | null
+}
+
+/* ------------------------------------------------------------------ */
+/* Models API contract (GET /api/models)                               */
+/* ------------------------------------------------------------------ */
+
+/** One selectable model inside a `ModelProviderGroup`. */
+export interface ModelInfo {
+  /** `provider:model` spec, e.g. `anthropic:claude-sonnet-4-6`. */
+  id: string
+  /** Display name, e.g. `Claude Sonnet 4.6`. */
+  name: string
+  /** Thinking levels the model supports (`[]` when it has none). */
+  thinking_levels: string[]
+  /** Context window in tokens, when known. */
+  max_context: number | null
+}
+
+/** `GET /api/models` — one entry per configured provider. */
+export interface ModelProviderGroup {
+  provider: string
+  /** Human label, e.g. `Anthropic`. */
+  label: string
+  models: ModelInfo[]
+}
+
+export interface ModelsOut {
+  providers: ModelProviderGroup[]
 }
 
 /* ------------------------------------------------------------------ */

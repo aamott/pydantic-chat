@@ -5,12 +5,7 @@
  */
 import { ShieldCheck } from 'lucide-react'
 import type { RunMeta } from '../../lib/dataParts'
-
-/** `anthropic:claude-sonnet-4-5` → `claude-sonnet-4-5` (no prefix → as-is). */
-function shortModelName(model: string): string {
-  const sep = model.indexOf(':')
-  return sep >= 0 ? model.slice(sep + 1) : model
-}
+import { shortModelName } from './ModelPicker'
 
 export function RunMetaBadge({
   meta,

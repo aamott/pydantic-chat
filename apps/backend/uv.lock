@@ -905,6 +905,7 @@ version = "0.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "pydantic-ai-harness", extra = ["coder"] },
     { name = "pydantic-ai-slim", extra = ["anthropic", "google", "openai"] },
     { name = "uvicorn", extra = ["standard"] },
@@ -912,7 +913,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "httpx" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "ruff" },
@@ -921,6 +921,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "pydantic-ai-harness", extras = ["coder"] },
     { name = "pydantic-ai-slim", extras = ["anthropic", "openai", "google"] },
     { name = "uvicorn", extras = ["standard"] },
@@ -928,7 +929,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "httpx" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "ruff" },

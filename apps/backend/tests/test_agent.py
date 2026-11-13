@@ -193,11 +193,14 @@ def test_build_run_kwargs_contents(tmp_path):
         "instructions",
         "workspace",
         "usage_limits",
+        "model_settings",
     }
     assert isinstance(kwargs["model"], AnthropicModel)
     assert isinstance(kwargs["workspace"], LocalWorkspaceBackend)
     assert kwargs["workspace"].ref.id == str(workspace)
     assert isinstance(kwargs["usage_limits"], UsageLimits)
+    # No `thinking` override -> no model_settings (the model keeps its default).
+    assert kwargs["model_settings"] is None
     assert kwargs["usage_limits"].request_limit == 50
 
     capabilities = kwargs["capabilities"]

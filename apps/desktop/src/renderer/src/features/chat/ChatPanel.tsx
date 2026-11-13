@@ -12,7 +12,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import { useChat } from '@ai-sdk/react'
 import { APICallError } from 'ai'
 import { AlertCircle, FolderOpen, Settings, X } from 'lucide-react'
-import { getChat, useChatsStore } from '../../stores/chats'
+import { findChatSummary, getChat, useChatsStore } from '../../stores/chats'
 import type { AppChat } from '../../lib/transport'
 import { asRunMeta, latestDataPart } from '../../lib/dataParts'
 import { MessageList } from './MessageList'
@@ -89,6 +89,10 @@ export function ChatPanel(): React.JSX.Element {
 function ChatView({ chat }: { chat: AppChat }): React.JSX.Element {
   const stopActive = useChatsStore((s) => s.stopActive)
   const refreshWorkspaces = useChatsStore((s) => s.refreshWorkspaces)
+  /* The chat's own workspace — attach picker lists its files. */
+  const workspaceId = useChatsStore(
+    (s) => findChatSummary(s.workspaces, chat.id)?.workspace_id ?? null,
+  )
   const {
     messages,
     status,
@@ -137,6 +141,8 @@ function ChatView({ chat }: { chat: AppChat }): React.JSX.Element {
         />
       )}
       <Composer
+        chatId={chat.id}
+        workspaceId={workspaceId}
         status={status}
         onSend={(text) => void sendMessage({ text })}
         onStop={() => void stopActive()}

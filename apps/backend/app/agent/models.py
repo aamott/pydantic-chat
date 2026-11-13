@@ -21,8 +21,9 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, TypedDict, cast
 
+import httpx
 from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.models.google import GoogleModel
 from pydantic_ai.models.ollama import OllamaModel
@@ -38,11 +39,112 @@ from app.config import get_secret
 
 if TYPE_CHECKING:
     from pydantic_ai.models import Model
+    from pydantic_ai.settings import ModelSettings, ThinkingLevel
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
 """Where a local Ollama server listens when no ``ollama_base_url`` is configured."""
+
+OLLAMA_TAGS_TIMEOUT = 3.0
+"""Seconds to wait for ``GET {ollama}/api/tags`` before treating the server as offline."""
+
+THINKING_LEVELS: tuple[str, ...] = ("off", "low", "medium", "high")
+"""Normalized thinking levels the model picker offers on every thinking-capable model.
+
+``off`` maps to the unified ``ModelSettings.thinking = False`` (thinking disabled, or the
+lowest level the model accepts when it can't turn thinking off); the rest pass through to
+pydantic-ai's unified ``thinking`` effort field, which translates per provider
+(Anthropic ``output_config.effort``, OpenAI ``reasoning_effort``, Gemini ``thinking_level``).
+"""
+
+
+class CatalogModel(TypedDict):
+    """One selectable model in the ``GET /api/models`` catalog."""
+
+    id: str  # full `provider:model` spec, ready for `resolve_model`
+    name: str  # display name
+    thinking_levels: list[str]  # subset of THINKING_LEVELS the model accepts
+    max_context: int | None  # context window in tokens; None when unknown
+
+
+class CatalogProvider(TypedDict):
+    """One provider section of the ``GET /api/models`` response."""
+
+    label: str
+    models: list[CatalogModel]
+
+
+def _cm(spec: str, name: str, thinking: list[str], max_context: int | None) -> CatalogModel:
+    """Build a :class:`CatalogModel` row (keeps the catalog below terse and editable)."""
+    return CatalogModel(
+        id=spec, name=name, thinking_levels=thinking, max_context=max_context
+    )
+
+
+_ALL_THINKING = list(THINKING_LEVELS)
+_NO_OFF = ["low", "medium", "high"]
+
+# Static model-picklist for the hosted providers; Ollama's list is dynamic
+# (`ollama_model_catalog`) and `openai-compatible` has no fixed list (empty).
+# This is a plain editable dict — add/rename models freely; ids should match
+# pydantic-ai's model profiles (this install knows claude-*-4-8/5, gpt-6.1-*,
+# gemini-4-*). Specs absent here still run via PATCH/`default_model`.
+#
+# `thinking_levels` is the normalized scale each model accepts: 'off' is
+# omitted where the model can't disable reasoning (gpt-6.1-sol, gpt-5.3-chat
+# advertises only its fixed 'medium', Gemini Pro thinks always).
+MODEL_CATALOG: dict[str, CatalogProvider] = {
+    "anthropic": {
+        "label": "Anthropic",
+        "models": [
+            _cm("anthropic:claude-opus-4-8", "Claude Opus 4.8", _ALL_THINKING, 200_000),
+            _cm("anthropic:claude-sonnet-5", "Claude Sonnet 5", _ALL_THINKING, 200_000),
+            _cm("anthropic:claude-sonnet-4-6", "Claude Sonnet 4.6", _ALL_THINKING, 200_000),
+            _cm("anthropic:claude-haiku-4-5", "Claude Haiku 4.5", _ALL_THINKING, 200_000),
+        ],
+    },
+    "openai": {
+        "label": "OpenAI",
+        "models": [
+            _cm("openai:gpt-6.1-sol", "GPT-6.1 Sol", _NO_OFF, 1_000_000),
+            _cm("openai:gpt-6.1-terra", "GPT-6.1 Terra", _ALL_THINKING, 1_000_000),
+            _cm("openai:gpt-5.5", "GPT-5.5", _ALL_THINKING, 400_000),
+        ],
+    },
+    "openai-chat": {
+        "label": "OpenAI (Chat)",
+        "models": [
+            _cm("openai-chat:gpt-5.3-chat", "GPT-5.3 Chat", ["medium"], 128_000),
+            _cm("openai-chat:gpt-5.2-chat", "GPT-5.2 Chat", ["medium"], 128_000),
+            _cm("openai-chat:gpt-5-chat", "GPT-5 Chat", ["off"], 128_000),
+        ],
+    },
+    "google": {
+        "label": "Google Gemini",
+        "models": [
+            _cm("google:gemini-4-carbon", "Gemini 4 Carbon", _ALL_THINKING, 1_048_576),
+            _cm("google:gemini-4-argon", "Gemini 4 Argon", _ALL_THINKING, 1_048_576),
+            _cm("google:gemini-3.8-flash", "Gemini 3.8 Flash", _ALL_THINKING, 1_048_576),
+            _cm("google:gemini-3.1-pro-preview", "Gemini 3.1 Pro", _NO_OFF, 1_048_576),
+        ],
+    },
+    "google-cloud": {
+        "label": "Google Cloud (Vertex AI)",
+        "models": [
+            _cm("google-cloud:gemini-4-carbon", "Gemini 4 Carbon", _ALL_THINKING, 1_048_576),
+            _cm("google-cloud:gemini-4-argon", "Gemini 4 Argon", _ALL_THINKING, 1_048_576),
+            _cm("google-cloud:gemini-3.8-flash", "Gemini 3.8 Flash", _ALL_THINKING, 1_048_576),
+            _cm(
+                "google-cloud:gemini-3.1-pro-preview",
+                "Gemini 3.1 Pro",
+                _NO_OFF,
+                1_048_576,
+            ),
+        ],
+    },
+}
+"""Static picker catalog keyed by provider prefix. Ollama is dynamic, not listed here."""
 
 KNOWN_PROVIDERS: tuple[str, ...] = (
     "anthropic",
@@ -195,3 +297,90 @@ def configured_providers() -> list[str]:
     if get_secret("openai_compatible_base_url"):
         configured.append("openai-compatible")
     return configured
+
+
+def split_model_spec(spec: str) -> tuple[str, str]:
+    """Split a ``provider:model`` spec into ``(provider, model_name)``.
+
+    Raises:
+        UnknownProviderError: If there's no ``:`` separator, no model name, or
+            the prefix isn't a known provider.
+    """
+    provider, sep, model_name = spec.partition(":")
+    if not sep or not model_name or provider not in KNOWN_PROVIDERS:
+        raise UnknownProviderError(provider if sep and provider else spec)
+    return provider, model_name
+
+
+def catalog_thinking_levels(spec: str) -> list[str] | None:
+    """The thinking levels a catalog-listed spec accepts, or ``None`` when unknown.
+
+    ``None`` covers every spec not in :data:`MODEL_CATALOG` — Ollama names,
+    ``openai-compatible`` models, and static-catalog misses — which the PATCH
+    route treats as free-form rather than validating.
+    """
+    provider, sep, model_name = spec.partition(":")
+    if not sep or not model_name:
+        return None
+    entry = MODEL_CATALOG.get(provider)
+    if entry is None:
+        return None
+    for model in entry["models"]:
+        if model["id"] == spec:
+            return model["thinking_levels"]
+    return None
+
+
+def thinking_model_settings(level: str | None) -> ModelSettings | None:
+    """Map a normalized thinking level to per-run ``model_settings``, or ``None``.
+
+    All providers take the unified ``ModelSettings.thinking`` field
+    (``pydantic_ai.settings``, verified against ``pydantic-ai-slim==2.68.0``):
+    the adapters translate it — Anthropic to ``output_config.effort`` /
+    ``anthropic_thinking``, OpenAI to ``reasoning_effort`` via
+    ``OPENAI_REASONING_EFFORT_MAP``, Gemini to ``thinking_level`` /
+    ``thinking_budget``. ``off`` sends ``False`` (thinking disabled where the
+    model allows it). Non-normalized free-form values pass through unchanged;
+    the provider is the authority on whether it accepts them.
+    """
+    if not level:
+        return None
+    if level == "off":
+        return {"thinking": False}
+    return {"thinking": cast("ThinkingLevel", level)}
+
+
+async def ollama_model_catalog() -> list[CatalogModel]:
+    """The local Ollama server's installed models, or ``[]`` when unreachable.
+
+    Queries ``GET {ollama_base_url}/api/tags`` with a short timeout; any
+    transport error or malformed payload reads as "no models" — an offline
+    Ollama must never break ``GET /api/models``. ``ollama_base_url`` resolves
+    through :func:`get_secret` exactly as ``resolve_model`` reads it.
+    """
+    base_url = (get_secret("ollama_base_url") or DEFAULT_OLLAMA_BASE_URL).rstrip("/")
+    try:
+        async with httpx.AsyncClient(
+            base_url=base_url, timeout=OLLAMA_TAGS_TIMEOUT
+        ) as client:
+            response = await client.get("/api/tags")
+            response.raise_for_status()
+        payload: Any = response.json()
+    except (httpx.HTTPError, ValueError):
+        logger.info("Ollama at %s unreachable; returning an empty model list", base_url)
+        return []
+    models = payload.get("models") if isinstance(payload, dict) else None
+    if not isinstance(models, list):
+        return []
+    return [
+        CatalogModel(
+            id=f"ollama:{name}",
+            name=name,
+            # Ollama's /api/tags doesn't report thinking capability; advertise
+            # the full normalized scale — a non-thinking model just ignores it.
+            thinking_levels=list(THINKING_LEVELS),
+            max_context=None,
+        )
+        for name in (m.get("name") for m in models if isinstance(m, dict))
+        if isinstance(name, str) and name
+    ]

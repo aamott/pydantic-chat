@@ -46,7 +46,12 @@ class Workspace:
 
 @dataclass(frozen=True, slots=True)
 class ChatSummary:
-    """Chat-list metadata; the transcript lives in the conversation tables under ``id``."""
+    """Chat-list metadata; the transcript lives in the conversation tables under ``id``.
+
+    ``model``/``thinking``/``permission_profile`` are per-chat overrides —
+    ``None`` inherits (model/thinking -> app defaults; profile -> workspace ->
+    global).
+    """
 
     id: str
     workspace_id: str
@@ -54,6 +59,20 @@ class ChatSummary:
     model: str | None
     created_at: int  # unix ms
     updated_at: int  # unix ms
+    thinking: str | None
+    permission_profile: str | None
+
+
+CHAT_SELECT = (
+    "SELECT id, workspace_id, title, model, created_at, updated_at, "
+    "thinking, permission_profile FROM chats"
+)
+"""Full ``ChatSummary`` column list, shared by every chat read."""
+
+CHAT_EDITABLE_FIELDS: frozenset[str] = frozenset(
+    {"title", "model", "thinking", "permission_profile"}
+)
+"""Chats columns :meth:`AppTablesMixin.update_chat` may write."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,8 +151,7 @@ class AppTablesMixin:
             "FROM workspaces ORDER BY last_opened_at DESC, id"
         ).fetchall()
         chats = self._conn.execute(
-            "SELECT id, workspace_id, title, model, created_at, updated_at "
-            "FROM chats ORDER BY updated_at DESC, id"
+            f"{CHAT_SELECT} ORDER BY updated_at DESC, id"
         ).fetchall()
         by_workspace: dict[str, list[ChatSummary]] = {}
         for row in chats:
@@ -210,6 +228,8 @@ class AppTablesMixin:
         *,
         title: str = "New chat",
         model: str | None = None,
+        thinking: str | None = None,
+        permission_profile: str | None = None,
         chat_id: str | None = None,
     ) -> ChatSummary:
         """Create a chat in a workspace; its ``id`` doubles as the ``conversation_id``.
@@ -217,13 +237,23 @@ class AppTablesMixin:
         Raises:
             ValueError: If the workspace doesn't exist (FK violation).
         """
-        return await self._run(self._create_chat, workspace_id, title, model, chat_id)
+        return await self._run(
+            self._create_chat,
+            workspace_id,
+            title,
+            model,
+            thinking,
+            permission_profile,
+            chat_id,
+        )
 
     def _create_chat(
         self,
         workspace_id: str,
         title: str,
         model: str | None,
+        thinking: str | None,
+        permission_profile: str | None,
         chat_id: str | None,
     ) -> ChatSummary:
         now = _now_ms()
@@ -234,13 +264,24 @@ class AppTablesMixin:
             model=model,
             created_at=now,
             updated_at=now,
+            thinking=thinking,
+            permission_profile=permission_profile,
         )
         try:
             with self._conn:
                 self._conn.execute(
-                    "INSERT INTO chats (id, workspace_id, title, model, created_at, updated_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?)",
-                    (summary.id, workspace_id, title, model, now, now),
+                    "INSERT INTO chats (id, workspace_id, title, model, created_at, updated_at, "
+                    "thinking, permission_profile) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        summary.id,
+                        workspace_id,
+                        title,
+                        model,
+                        now,
+                        now,
+                        thinking,
+                        permission_profile,
+                    ),
                 )
         except sqlite3.IntegrityError as exc:
             raise ValueError(
@@ -254,9 +295,7 @@ class AppTablesMixin:
 
     def _get_chat(self, chat_id: str) -> ChatSummary | None:
         row = self._conn.execute(
-            "SELECT id, workspace_id, title, model, created_at, updated_at "
-            "FROM chats WHERE id = ?",
-            (chat_id,),
+            f"{CHAT_SELECT} WHERE id = ?", (chat_id,)
         ).fetchone()
         return None if row is None else self._chat_from_row(row)
 
@@ -266,8 +305,7 @@ class AppTablesMixin:
 
     def _list_chats(self, workspace_id: str) -> list[ChatSummary]:
         rows = self._conn.execute(
-            "SELECT id, workspace_id, title, model, created_at, updated_at "
-            "FROM chats WHERE workspace_id = ? ORDER BY updated_at DESC, id",
+            f"{CHAT_SELECT} WHERE workspace_id = ? ORDER BY updated_at DESC, id",
             (workspace_id,),
         ).fetchall()
         return [self._chat_from_row(row) for row in rows]
@@ -281,6 +319,41 @@ class AppTablesMixin:
             cursor = self._conn.execute(
                 "UPDATE chats SET title = ?, updated_at = ? WHERE id = ?",
                 (title, _now_ms(), chat_id),
+            )
+        return self._get_chat(chat_id) if cursor.rowcount else None
+
+    async def update_chat(
+        self, chat_id: str, **fields: str | None
+    ) -> ChatSummary | None:
+        """Set per-chat fields; ``None`` clears an override back to inherited.
+
+        Args:
+            chat_id: The chat to update.
+            **fields: Columns to write — keys restricted to
+                :data:`CHAT_EDITABLE_FIELDS` (``title``/``model``/``thinking``/
+                ``permission_profile``). Unmentioned fields keep their values.
+
+        Returns:
+            The updated summary, or ``None`` if the chat doesn't exist.
+
+        Raises:
+            ValueError: If a field name isn't editable or nothing was passed.
+        """
+        if not fields:
+            raise ValueError("update_chat requires at least one field")
+        unknown = set(fields) - CHAT_EDITABLE_FIELDS
+        if unknown:
+            raise ValueError(f"Unknown chat fields: {sorted(unknown)}")
+        return await self._run(self._update_chat, chat_id, fields)
+
+    def _update_chat(
+        self, chat_id: str, fields: dict[str, str | None]
+    ) -> ChatSummary | None:
+        assignments = ", ".join(f"{name} = ?" for name in fields)
+        with self._conn:
+            cursor = self._conn.execute(
+                f"UPDATE chats SET {assignments}, updated_at = ? WHERE id = ?",
+                (*fields.values(), _now_ms(), chat_id),
             )
         return self._get_chat(chat_id) if cursor.rowcount else None
 
@@ -387,4 +460,6 @@ class AppTablesMixin:
             model=row[3],
             created_at=row[4],
             updated_at=row[5],
+            thinking=row[6],
+            permission_profile=row[7],
         )

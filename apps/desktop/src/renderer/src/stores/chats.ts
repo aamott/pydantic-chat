@@ -29,6 +29,34 @@ export function getChat(chatId: string): AppChat | undefined {
   return chatRegistry.get(chatId)
 }
 
+/** Fields `PATCH /api/chats/{id}` accepts besides `title` (rename). */
+export interface ChatUpdate {
+  model?: string | null
+  thinking?: string | null
+  /** `bypass | smart | manual | read-only`, or null to inherit. */
+  permission_profile?: string | null
+}
+
+/**
+ * Find a chat's summary row inside the nested `workspaces[].chats` data.
+ *
+ * Chat model/thinking/permission_profile hydration comes from these rows:
+ * `GET /api/workspaces` returns `ChatSummaryOut` per chat — the same schema
+ * `PATCH /api/chats/{id}` returns — so a single source feeds both the
+ * sidebar and the composer pickers. Fields absent on an older backend read
+ * as `undefined`, which the pickers treat like `null` (inherit).
+ */
+export function findChatSummary(
+  workspaces: Workspace[],
+  chatId: string,
+): ChatSummary | undefined {
+  for (const workspace of workspaces) {
+    const summary = (workspace.chats ?? []).find((c) => c.id === chatId)
+    if (summary) return summary
+  }
+  return undefined
+}
+
 interface ChatsState {
   /** Workspaces with nested chat summaries, straight from GET /api/workspaces. */
   workspaces: Workspace[]
@@ -53,6 +81,11 @@ interface ChatsState {
   createChat: (workspaceId: string) => Promise<void>
   /** PATCH /api/chats/{id} — rename; false on failure (row keeps editing). */
   renameChat: (chatId: string, title: string) => Promise<boolean>
+  /**
+   * PATCH /api/chats/{id} — per-chat model/thinking/permission_profile
+   * overrides (null inherits); false on failure.
+   */
+  updateChat: (chatId: string, patch: ChatUpdate) => Promise<boolean>
   /** DELETE /api/chats/{id} — prune it; selects a sibling when it was active. */
   deleteChat: (chatId: string) => Promise<void>
   /** DELETE /api/workspaces/{id} — prune it + its chats; activates a sibling. */
@@ -257,6 +290,36 @@ export const useChatsStore = create<ChatsState>()((set, get) => {
             error instanceof Error
               ? `Couldn't rename chat: ${error.message}`
               : "Couldn't rename chat",
+        })
+        return false
+      }
+    },
+
+    updateChat: async (chatId, patch) => {
+      try {
+        const summary = await apiJson<ChatSummary>(`/api/chats/${chatId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          // Undefined keys serialize away, so only provided fields are sent.
+          body: JSON.stringify(patch),
+        })
+        set((s) => ({
+          workspaces: s.workspaces.map((w) => ({
+            ...w,
+            chats: (w.chats ?? []).map((c) =>
+              // Merge rather than replace: a stale/partial response must not
+              // drop fields the row already knows.
+              c.id === chatId ? { ...c, ...summary } : c,
+            ),
+          })),
+        }))
+        return true
+      } catch (error) {
+        set({
+          notice:
+            error instanceof Error
+              ? `Couldn't update chat: ${error.message}`
+              : "Couldn't update chat",
         })
         return false
       }

@@ -40,7 +40,11 @@ from pydantic_ai_harness.repo_context import RepoContext
 from pydantic_ai_harness.shell import Shell
 
 from app.agent.events import install_ui_event_bridge, run_meta_hooks
-from app.agent.models import ProviderNotConfigured, resolve_model
+from app.agent.models import (
+    ProviderNotConfigured,
+    resolve_model,
+    thinking_model_settings,
+)
 from app.config import DEFAULT_MODEL, DEFAULT_PERMISSION_PROFILE, data_dir
 
 if TYPE_CHECKING:
@@ -242,9 +246,12 @@ def build_run_kwargs(
 
     Args:
         chat_settings: A mapping (or object with attributes) carrying the run's
-            settings — ``model`` (a ``provider:model`` spec), ``permission_profile``,
-            ``judge_model``, the four allow/deny lists, and ``chat_id`` (scopes
-            the persistent plan). Missing keys fall back to safe defaults.
+            settings — ``model`` (a ``provider:model`` spec), ``thinking``
+            (a normalized ``off``/``low``/``medium``/``high`` level, mapped to
+            the unified ``ModelSettings.thinking`` field),
+            ``permission_profile``, ``judge_model``, the four allow/deny lists,
+            and ``chat_id`` (scopes the persistent plan). Missing keys fall
+            back to safe defaults.
         workspace: The app ``Workspace`` row, or a bare path.
 
     Returns:
@@ -286,6 +293,11 @@ def build_run_kwargs(
         # history can't redirect file access elsewhere on the host.
         "workspace": LocalWorkspaceBackend(root),
         "usage_limits": UsageLimits(request_limit=REQUEST_LIMIT),
+        # Chat's thinking level -> the unified ModelSettings.thinking field;
+        # None when unset (the model keeps its default behavior).
+        "model_settings": thinking_model_settings(
+            _setting(chat_settings, "thinking")
+        ),
     }
 
 

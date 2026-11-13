@@ -16,12 +16,19 @@ from app.db import ChatSummary, Workspace
 
 
 class ChatSummaryOut(BaseModel):
-    """One chat's sidebar metadata; a superset of the shared ``ChatSummary`` type."""
+    """One chat's sidebar metadata; a superset of the shared ``ChatSummary`` type.
+
+    ``model``/``thinking``/``permission_profile`` are the per-chat overrides the
+    composer hydrates from; ``null`` means "inherit" (model/thinking -> app
+    defaults; profile -> workspace -> global).
+    """
 
     id: str
     workspace_id: str
     title: str
     model: str | None
+    thinking: str | None
+    permission_profile: str | None
     created_at: int
     updated_at: int
 
@@ -32,6 +39,8 @@ class ChatSummaryOut(BaseModel):
             workspace_id=row.workspace_id,
             title=row.title,
             model=row.model,
+            thinking=row.thinking,
+            permission_profile=row.permission_profile,
             created_at=row.created_at,
             updated_at=row.updated_at,
         )
@@ -95,9 +104,21 @@ class ChatCreate(BaseModel):
 
 
 class ChatPatch(BaseModel):
-    """``PATCH /api/chats/{id}`` body — a rename."""
+    """``PATCH /api/chats/{id}`` body — merge semantics; unset fields are left alone.
 
-    title: str = Field(min_length=1)
+    ``model`` is a ``provider:model`` spec (``null`` clears the override).
+    ``thinking`` is a normalized level (``off``/``low``/``medium``/``high``,
+    free-form tolerated for models outside the static catalog) or ``null``.
+    ``permission_profile`` takes the four profiles or ``null`` to inherit.
+    ``title`` must be a non-empty string when present — ``null`` is rejected.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str | None = Field(default=None, min_length=1)
+    model: str | None = None
+    thinking: str | None = None
+    permission_profile: PermissionProfile | None = None
 
 
 class FileOut(BaseModel):
@@ -220,3 +241,36 @@ class SecretSetIn(BaseModel):
 
     key: str | None = None
     base_url: str | None = None
+
+
+class ModelOut(BaseModel):
+    """One selectable model in the ``GET /api/models`` catalog.
+
+    ``id`` is the full ``provider:model`` spec to store on the chat.
+    ``thinking_levels`` is the subset of the normalized
+    ``off``/``low``/``medium``/``high`` scale the model accepts; ``max_context``
+    is the context window in tokens (``null`` when unknown, e.g. Ollama).
+    """
+
+    id: str
+    name: str
+    thinking_levels: list[str]
+    max_context: int | None
+
+
+class ModelProviderOut(BaseModel):
+    """One configured provider's section of the model catalog.
+
+    ``models`` is empty for providers with no fixed list — a configured
+    ``openai-compatible`` endpoint, or Ollama when the local server is offline.
+    """
+
+    provider: str
+    label: str
+    models: list[ModelOut]
+
+
+class ModelsOut(BaseModel):
+    """``GET /api/models`` response — only providers usable right now."""
+
+    providers: list[ModelProviderOut]
