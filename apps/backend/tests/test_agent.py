@@ -8,12 +8,13 @@ from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.models.google import GoogleModel
 from pydantic_ai.models.ollama import OllamaModel
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
+from pydantic_ai.models.test import TestModel
 from pydantic_ai.providers.google import GoogleProvider
 from pydantic_ai.providers.google_cloud import GoogleCloudProvider
 from pydantic_ai.providers.openai_compatible import OpenAICompatibleProvider
 from pydantic_ai.usage import UsageLimits
 from pydantic_ai.workspaces import LocalWorkspaceBackend
-from pydantic_ai_harness import Coder, Permissions, Planning
+from pydantic_ai_harness import ApprovalReviewer, Coder, Permissions, Planning
 from pydantic_ai_harness.filesystem import FileSystem
 from pydantic_ai_harness.shell import Shell
 
@@ -283,6 +284,63 @@ def test_smart_profile_falls_back_to_manual_without_judge():
     permissions = [c for c in caps if isinstance(c, Permissions)]
     # No anthropic key for the default haiku judge -> manual fallback.
     assert permissions and permissions[0].mode == "read-only"
+
+
+def test_smart_profile_uses_given_judge_model():
+    """A ``Model`` instance as ``judge_model`` builds the reviewer directly."""
+    judge = TestModel()
+    caps = resolve_permission_capabilities("smart", judge_model=judge)
+    reviewer = next(
+        (c for c in caps if isinstance(c, ApprovalReviewer)), None
+    )
+    assert reviewer is not None, "smart profile built no ApprovalReviewer"
+    assert reviewer.model is judge
+    permissions = [c for c in caps if isinstance(c, Permissions)]
+    assert permissions and permissions[0].mode == "auto"
+
+
+def test_build_run_kwargs_smart_defaults_judge_to_run_model(tmp_path):
+    """A configured run model supplies the judge when ``judge_model`` is unset.
+
+    Regression for the reported bug: a user with only a Google key gets
+    ``ProviderNotConfigured`` resolving the anthropic ``SMART_DEFAULT_JUDGE``,
+    so ``smart`` silently fell back to ``manual`` and every command asked.
+    The run's own model is configured by definition — it judges instead.
+    """
+    set_secret("google_api_key", "g-test")  # anthropic stays unconfigured
+    kwargs = build_run_kwargs(
+        _chat_settings(
+            model="google:gemini-2.5-flash", permission_profile="smart"
+        ),
+        tmp_path,
+    )
+    capabilities = kwargs["capabilities"]
+    reviewer = next(
+        (c for c in capabilities if isinstance(c, ApprovalReviewer)), None
+    )
+    assert reviewer is not None, (
+        "smart profile fell back to manual despite a configured run model"
+    )
+    assert reviewer.model is kwargs["model"]  # the run's own resolved model
+    permissions = [c for c in capabilities if isinstance(c, Permissions)]
+    assert permissions and permissions[0].mode == "auto"
+
+
+def test_build_run_kwargs_explicit_judge_model_wins(tmp_path):
+    """A ``judge_model`` setting outranks the run model for the reviewer."""
+    set_secret("google_api_key", "g-test")
+    kwargs = build_run_kwargs(
+        _chat_settings(
+            model="google:gemini-2.5-flash",
+            permission_profile="smart",
+            judge_model="ollama:qwen3",  # ollama resolves without a key
+        ),
+        tmp_path,
+    )
+    reviewer = next(
+        c for c in kwargs["capabilities"] if isinstance(c, ApprovalReviewer)
+    )
+    assert isinstance(reviewer.model, OllamaModel)
 
 
 # ---------------------------------------------------------------------------

@@ -61,7 +61,15 @@ REQUEST_LIMIT = 50
 """Max model turns per agent run — bounds runaway loops."""
 
 SMART_DEFAULT_JUDGE = "anthropic:claude-haiku-4-5"
-"""Default reviewer model spec for the ``smart`` profile (cheapest tier)."""
+"""Last-resort reviewer spec for ``smart`` when nothing better is available.
+
+The judge the ``smart`` profile actually uses resolves in priority order: the
+explicit ``judge_model`` setting, then the run's own model (configured by
+definition — ``build_run_kwargs`` supplies it), then this spec. It exists for
+direct ``resolve_permission_capabilities`` callers that have no run model;
+when even it can't resolve (no provider key), ``smart`` falls back to
+``manual`` with a warning.
+"""
 
 APPROVAL_RISK_QUESTION = "Could this call destroy data, spend money, or leak secrets?"
 """Yes/no question ``ApprovalReviewer`` asks; ``no`` auto-approves the call."""
@@ -177,7 +185,9 @@ def resolve_permission_capabilities(
         judge_model: Reviewer for ``smart`` — a ``Model`` or a
             ``provider:model`` spec resolved through the registry. Defaults to
             :data:`SMART_DEFAULT_JUDGE`; when it can't be configured (no key),
-            ``smart`` falls back to ``manual``.
+            ``smart`` falls back to ``manual``. ``build_run_kwargs`` always
+            passes a value here — the ``judge_model`` setting, else the run's
+            own resolved model — so this default only serves direct callers.
 
     Returns:
         The capability list to merge into ``build_run_kwargs``'s.
@@ -213,7 +223,14 @@ def resolve_permission_capabilities(
 
 
 def _approval_reviewer(judge_model: str | Model | None) -> ApprovalReviewer | None:
-    """An ``ApprovalReviewer`` for the judge spec, or ``None`` when unconfigurable."""
+    """An ``ApprovalReviewer`` for the judge, or ``None`` when unconfigurable.
+
+    ``judge_model`` is whatever the caller prioritized — the explicit setting
+    or the run's own ``Model``. ``None`` falls back to
+    :data:`SMART_DEFAULT_JUDGE`, which can still hit ``ProviderNotConfigured``
+    (e.g. a Google-key-only user); that returns ``None`` so ``smart``
+    degrades to ``manual`` rather than crashing the run setup.
+    """
     spec: str | Model = judge_model or SMART_DEFAULT_JUDGE
     try:
         model = spec if not isinstance(spec, str) else resolve_model(spec)
@@ -261,7 +278,8 @@ def build_run_kwargs(
             the unified ``ModelSettings.thinking`` field),
             ``permission_profile``, ``judge_model``, the four allow/deny lists,
             and ``chat_id`` (scopes the persistent plan). Missing keys fall
-            back to safe defaults.
+            back to safe defaults; a missing ``judge_model`` makes the
+            ``smart`` profile's reviewer judge with the run's own model.
         workspace: The app ``Workspace`` row, or a bare path.
 
     Returns:
@@ -280,7 +298,15 @@ def build_run_kwargs(
         denied_patterns=tuple(_setting(chat_settings, "denied_patterns") or ()),
     )
     model_spec = _setting(chat_settings, "model") or DEFAULT_MODEL
-    judge_model = _setting(chat_settings, "judge_model")
+    # Resolve once and share the instance: a ``smart`` run judges with the
+    # explicit ``judge_model`` setting, else this same model — it's configured
+    # by definition, which keeps ``smart`` working for users whose only key
+    # belongs to the chat model's provider (the anthropic SMART_DEFAULT_JUDGE
+    # would otherwise force a silent manual fallback). Raises
+    # ProviderNotConfigured for an unconfigured run model before anything else
+    # is built — the route maps that to 402 either way.
+    model = resolve_model(model_spec)
+    judge_model: str | Model = _setting(chat_settings, "judge_model") or model
 
     read_only = profile == "read-only"
     capabilities: list[AbstractCapability] = [
@@ -293,7 +319,7 @@ def build_run_kwargs(
     ]
 
     return {
-        "model": resolve_model(model_spec),
+        "model": model,
         "capabilities": capabilities,
         # Run-level instructions append to the agent's own and every
         # capability's, so the `file:`-link guidance reaches the model under

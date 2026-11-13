@@ -12,7 +12,9 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.models.test import TestModel
+from pydantic_ai_harness import ApprovalReviewer, Permissions
 
+from app.agent.factory import SMART_DEFAULT_JUDGE
 from app.agent.models import ProviderNotConfigured, UnknownProviderError
 from app.api.chat import _run_settings
 from app.main import create_app
@@ -255,6 +257,73 @@ def test_stop_without_run_404(client):
     chat = _create_chat(test_client, workspace["id"])
     response = test_client.post(f"/api/chats/{chat['id']}/stop", headers=AUTH)
     assert response.status_code == 404
+
+
+def test_mid_chat_profile_switch_changes_next_run_capabilities(
+    client, monkeypatch
+):
+    """PATCH ``permission_profile`` mid-chat; the next run builds the new set.
+
+    The first run goes out under the default ``manual`` profile; a PATCH to
+    ``smart`` must make the very next POST build the smart capability set —
+    ``Permissions('auto')`` plus an ``ApprovalReviewer`` judging with the
+    run's own model (the anthropic ``SMART_DEFAULT_JUDGE`` is deliberately
+    unresolvable here, reproducing the Google-key-only report).
+    """
+    test_client, tmp_path = client
+    workspace = _create_workspace(test_client, tmp_path)
+    chat = _create_chat(test_client, workspace["id"])
+
+    def fake_resolve(spec):
+        if spec == SMART_DEFAULT_JUDGE:
+            raise ProviderNotConfigured("anthropic", "no anthropic key")
+        return TestModel(call_tools=[], custom_output_text="hi there")
+
+    monkeypatch.setattr("app.agent.factory.resolve_model", fake_resolve)
+
+    # Capture the capability list each run is built with — assert the real
+    # wiring, not the `data-run-meta` profile label.
+    import app.api.chat as chat_module
+
+    built: list[list] = []
+    original = chat_module.build_run_kwargs
+
+    def spy(settings, ws):
+        kwargs = original(settings, ws)
+        built.append(kwargs["capabilities"])
+        return kwargs
+
+    monkeypatch.setattr(chat_module, "build_run_kwargs", spy)
+
+    first = test_client.post(
+        "/api/chat", json=_chat_payload(chat["id"]), headers=AUTH
+    )
+    assert first.status_code == 200
+    assert not any(isinstance(c, ApprovalReviewer) for c in built[-1])
+    permissions = [c for c in built[-1] if isinstance(c, Permissions)]
+    assert permissions and permissions[0].mode == "read-only"
+
+    # The mid-conversation switch the user reported.
+    patched = test_client.patch(
+        f"/api/chats/{chat['id']}",
+        json={"permission_profile": "smart"},
+        headers=AUTH,
+    )
+    assert patched.status_code == 200
+    assert patched.json()["permission_profile"] == "smart"
+
+    second = test_client.post(
+        "/api/chat", json=_chat_payload(chat["id"], "again"), headers=AUTH
+    )
+    assert second.status_code == 200
+    reviewer = next(
+        (c for c in built[-1] if isinstance(c, ApprovalReviewer)), None
+    )
+    assert reviewer is not None, (
+        "smart profile still built manual capabilities on the next run"
+    )
+    permissions = [c for c in built[-1] if isinstance(c, Permissions)]
+    assert permissions and permissions[0].mode == "auto"
 
 
 async def test_run_settings_workspace_profile_override(tmp_path, monkeypatch):
