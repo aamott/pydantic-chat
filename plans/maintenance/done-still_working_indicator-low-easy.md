@@ -15,3 +15,9 @@ Free-tier Gemini can take 1–4 min to first token — the stream emits `start` 
 
 - `apps/desktop/src/renderer/src/features/chat/{ChatPanel,MessageList}.tsx` — status plumbing
 - `apps/desktop/src/renderer/src/features/chat/Composer.tsx` — status→busy mapping for reference
+
+## Resolution
+
+Implemented as `WorkingIndicator` in `MessageList.tsx` backed by pure helpers in `lib/workingIndicator.ts` (`formatElapsed`, `runHasVisibleOutput`, `showWorkingIndicator`; 21 vitest cases).
+
+**Design choice — replaced by content, not kept during tool calls:** the indicator shows only while a live run's tail assistant message renders nothing yet (`step-start` <hr>s, empty text placeholders, and hidden `data-run-meta`/`data-shell` parts don't count). First rendered part — text token, reasoning "Thinking…" collapsible, tool card, plan card — replaces it, because tool phases already carry their own liveness badges ("calling…") and a second timer would be redundant noise. Per-run reset falls out of mount/unmount: `showWorkingIndicator` flips false at ready/error/stop, unmounting the component and its 1s `setInterval`, so the next run starts a fresh clock.

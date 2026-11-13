@@ -13,6 +13,10 @@ import type { ChatStatus, UIMessage } from 'ai'
 import { Pencil, RotateCcw } from 'lucide-react'
 import { transcriptParts } from '../../lib/dataParts'
 import { lastAssistantMessage, messageText } from '../../lib/messages'
+import {
+  formatElapsed,
+  showWorkingIndicator,
+} from '../../lib/workingIndicator'
 import { MessagePart } from './MessagePart'
 import {
   ApprovalGroup,
@@ -59,6 +63,8 @@ export function MessageList({
   // requires a completed (ready) tail assistant message.
   const regenerateId =
     status === 'ready' ? lastAssistantMessage(messages)?.id : undefined
+
+  const showWorking = showWorkingIndicator(status, messages)
 
   // Follow the stream only while the user hasn't scrolled away.
   useEffect(() => {
@@ -109,9 +115,11 @@ export function MessageList({
               />
             ),
           )}
-          {status === 'submitted' && (
-            <p className="text-xs text-neutral-400">Waiting for response…</p>
-          )}
+          {/* Dead-air cover: a live run with no rendered output yet gets
+              a ticking elapsed line so slow first tokens read as working.
+              Hidden parts (run-meta, shell) and bare step-start <hr>s
+              don't count as output — see lib/workingIndicator.ts. */}
+          {showWorking && <WorkingIndicator />}
         </div>
       )}
     </div>
@@ -298,13 +306,46 @@ function UserEditRow({
 }
 
 function EmptyState({ status }: { status: ChatStatus }): React.JSX.Element {
+  const busy = status === 'submitted' || status === 'streaming'
   return (
     <div className="flex h-full items-center justify-center">
-      <p className="text-sm text-neutral-400">
-        {status === 'submitted' || status === 'streaming'
-          ? 'Waiting for response…'
-          : 'Send a message to start.'}
-      </p>
+      {busy ? (
+        <WorkingIndicator className="text-sm text-neutral-400" />
+      ) : (
+        <p className="text-sm text-neutral-400">Send a message to start.</p>
+      )}
     </div>
+  )
+}
+
+/**
+ * "Working… Ns" elapsed line for a live run with no rendered output yet.
+ *
+ * Mounting marks the run's start: the parent renders this only while
+ * `showWorkingIndicator` is true, so it unmounts on the first visible
+ * part / on ready/error/stop and each run gets a fresh clock. A 1s
+ * `setInterval` drives the tick (stream chunks alone can't — dead air is
+ * exactly the absence of renders). The counter span is `aria-hidden` so
+ * screen readers aren't spammed every second; `tabular-nums` keeps the
+ * digits from jittering the line's width.
+ */
+function WorkingIndicator({
+  className = 'text-xs text-neutral-400',
+}: {
+  className?: string
+}): React.JSX.Element {
+  const [startedAt] = useState(() => Date.now())
+  const [now, setNow] = useState(startedAt)
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [])
+  return (
+    <p className={className}>
+      Working…{' '}
+      <span aria-hidden="true" className="tabular-nums">
+        {formatElapsed(now - startedAt)}
+      </span>
+    </p>
   )
 }
