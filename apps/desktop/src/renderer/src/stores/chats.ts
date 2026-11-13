@@ -39,6 +39,32 @@ function ensureChat(chatId: string): AppChat {
   return chat
 }
 
+/**
+ * Pull the persisted transcript into the `Chat` instance on first open.
+ * Skipped while the instance is mid-stream — its in-flight state is newer
+ * than anything the server could hand back.
+ */
+async function hydrateChat(chatId: string): Promise<void> {
+  if (hydratedChats.has(chatId)) return
+  hydratedChats.add(chatId) // optimistic: one fetch per chat per session
+  try {
+    const messages = await apiJson<UIMessage[]>(
+      `/api/chats/${chatId}/messages`,
+    )
+    const chat = ensureChat(chatId)
+    if (chat.status === 'ready' || chat.status === 'error') {
+      // `chat.messages =` is the SDK's hydration setter (same thing
+      // `useChat().setMessages` calls through to).
+      chat.messages = messages
+      if (chat.status === 'error') chat.clearError()
+    }
+  } catch (error) {
+    // 404 = chat deleted server-side; surface it and let the caller prune.
+    hydratedChats.delete(chatId)
+    throw error
+  }
+}
+
 /** Fields `PATCH /api/chats/{id}` accepts besides `title` (rename). */
 export interface ChatUpdate {
   model?: string | null
@@ -111,32 +137,6 @@ interface ChatsState {
 }
 
 export const useChatsStore = create<ChatsState>()((set, get) => {
-  /**
-   * Pull the persisted transcript into the `Chat` instance on first open.
-   * Skipped while the instance is mid-stream — its in-flight state is newer
-   * than anything the server could hand back.
-   */
-  async function hydrateChat(chatId: string): Promise<void> {
-    if (hydratedChats.has(chatId)) return
-    hydratedChats.add(chatId) // optimistic: one fetch per chat per session
-    try {
-      const messages = await apiJson<UIMessage[]>(
-        `/api/chats/${chatId}/messages`,
-      )
-      const chat = ensureChat(chatId)
-      if (chat.status === 'ready' || chat.status === 'error') {
-        // `chat.messages =` is the SDK's hydration setter (same thing
-        // `useChat().setMessages` calls through to).
-        chat.messages = messages
-        if (chat.status === 'error') chat.clearError()
-      }
-    } catch (error) {
-      // 404 = chat deleted server-side; surface it and let the caller prune.
-      hydratedChats.delete(chatId)
-      throw error
-    }
-  }
-
   /** Pick a chat inside `workspace`: last-open, else first, else create one. */
   async function activateWorkspaceChat(workspace: Workspace): Promise<void> {
     const chats = workspace.chats ?? []

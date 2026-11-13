@@ -1,13 +1,15 @@
 /**
- * Permissions settings: the agent's permission profile plus the four
- * allow/deny lists handed to its Shell/FileSystem capabilities.
+ * Permissions settings: the agent's default permission profile plus the
+ * four allow/deny lists handed to its Shell/FileSystem capabilities.
  *
- * Profiles mirror the backend's `PermissionProfile` literal
- * (app/agent/factory.py); descriptions use the same plain-language
- * semantics: bypass asks for nothing, smart lets a judge model approve
- * low-risk calls, manual asks before every write/command, read-only
- * removes write tools and the shell entirely.
+ * The profile radios come from `GET /api/tool-profiles` (builtin + custom,
+ * cached in `stores/profiles.ts`) — custom profiles are editable in the
+ * Tool profiles section. A saved value that no longer resolves (deleted
+ * custom profile) still renders as a selected "unknown" row, since the
+ * backend falls back to `manual` for unresolvable ids.
  */
+import { useEffect } from 'react'
+import { useProfilesStore } from '../../../stores/profiles'
 import { useSettingsStore } from '../../../stores/settings'
 import {
   Field,
@@ -15,37 +17,21 @@ import {
   TagListEditor,
 } from '../components'
 
-const PROFILES: Array<{ value: string; name: string; description: string }> = [
-  {
-    value: 'manual',
-    name: 'Manual',
-    description:
-      'Ask before every file write and shell command. Safest everyday default.',
-  },
-  {
-    value: 'smart',
-    name: 'Smart',
-    description:
-      'A judge model auto-approves low-risk calls; anything that could destroy data, spend money, or leak secrets still asks.',
-  },
-  {
-    value: 'bypass',
-    name: 'Bypass',
-    description:
-      'Run every tool call without asking. Fastest — use only in trusted workspaces.',
-  },
-  {
-    value: 'read-only',
-    name: 'Read-only',
-    description:
-      'The agent can read files but cannot write or run shell commands.',
-  },
-]
-
 export function PermissionsSection(): React.JSX.Element | null {
   const settings = useSettingsStore((s) => s.settings)
   const patch = useSettingsStore((s) => s.patch)
+  const profiles = useProfilesStore((s) => s.profiles)
+  const ensureProfilesLoaded = useProfilesStore((s) => s.ensureLoaded)
+
+  useEffect(() => {
+    void ensureProfilesLoaded()
+  }, [ensureProfilesLoaded])
+
   if (!settings) return null
+
+  const currentKnown = profiles.some(
+    (p) => p.id === settings.permission_profile,
+  )
 
   return (
     <div className="space-y-5">
@@ -59,34 +45,58 @@ export function PermissionsSection(): React.JSX.Element | null {
         keywords="permission profile approval bypass smart manual read-only readonly ask allow"
       >
         <div className="space-y-2" role="radiogroup" aria-label="Permission profile">
-          {PROFILES.map((profile) => (
+          {profiles.map((profile) => (
             <label
-              key={profile.value}
+              key={profile.id}
               className={`flex cursor-pointer items-start gap-2.5 rounded-md border px-3 py-2 ${
-                settings.permission_profile === profile.value
-                  ? 'border-blue-500 bg-blue-50 dark:border-blue-400 dark:bg-blue-950/40'
-                  : 'border-neutral-200 hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-800'
+                settings.permission_profile === profile.id
+                  ? 'border-accent bg-accent-soft'
+                  : 'border-subtle hover-bg-subtle'
               }`}
             >
               <input
                 type="radio"
                 name="permission_profile"
-                value={profile.value}
-                checked={settings.permission_profile === profile.value}
-                onChange={() => patch('permission_profile', profile.value)}
+                value={profile.id}
+                checked={settings.permission_profile === profile.id}
+                onChange={() => patch('permission_profile', profile.id)}
                 className="mt-1 accent-blue-600"
               />
               {/* The name text must sit within label-depth 2 for S6853's
                   accessible-text check — keep it a direct child of this
                   span rather than nesting it inside another element. */}
-              <span className="text-sm font-medium text-neutral-800 dark:text-neutral-200">
+              <span className="text-strong text-sm font-medium">
                 {profile.name}
-                <span className="block text-xs font-normal text-neutral-500 dark:text-neutral-400">
+                {!profile.builtin && (
+                  <span className="ml-1.5 font-normal text-neutral-400">
+                    (custom)
+                  </span>
+                )}
+                <span className="text-muted block text-xs font-normal">
                   {profile.description}
                 </span>
               </span>
             </label>
           ))}
+          {!currentKnown && (
+            <label className="border-accent bg-accent-soft flex cursor-pointer items-start gap-2.5 rounded-md border px-3 py-2">
+              <input
+                type="radio"
+                name="permission_profile"
+                value={settings.permission_profile}
+                checked
+                readOnly
+                className="mt-1 accent-blue-600"
+              />
+              <span className="text-strong text-sm font-medium">
+                {settings.permission_profile}
+                <span className="text-muted block text-xs font-normal">
+                  Unknown profile id — the backend falls back to Manual. Pick
+                  another profile to replace it.
+                </span>
+              </span>
+            </label>
+          )}
         </div>
       </Field>
 

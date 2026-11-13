@@ -1,8 +1,14 @@
 /**
  * Model settings: the default `provider:model` spec for new chats, plus the
- * judge model — shown only while the `smart` permission profile is active,
- * since that profile is the judge's only consumer.
+ * judge model — shown only while the selected permission profile uses the
+ * `smart` approval mode, since that mode is the judge's only consumer.
+ *
+ * The selected profile resolves through `GET /api/tool-profiles` so custom
+ * profiles with `approval_mode: 'smart'` also surface the field; when the
+ * list can't be fetched, the legacy `smart` id check is the fallback.
  */
+import { useEffect } from 'react'
+import { useProfilesStore } from '../../../stores/profiles'
 import { useSettingsStore } from '../../../stores/settings'
 import { Field, SectionHeading, inputClass } from '../components'
 
@@ -12,7 +18,19 @@ const MODEL_SPEC_HINT =
 export function ModelSection(): React.JSX.Element | null {
   const settings = useSettingsStore((s) => s.settings)
   const patch = useSettingsStore((s) => s.patch)
+  const profiles = useProfilesStore((s) => s.profiles)
+  const ensureProfilesLoaded = useProfilesStore((s) => s.ensureLoaded)
+
+  useEffect(() => {
+    void ensureProfilesLoaded()
+  }, [ensureProfilesLoaded])
+
   if (!settings) return null
+
+  const selected = profiles.find((p) => p.id === settings.permission_profile)
+  const smartActive = selected
+    ? selected.approval_mode === 'smart'
+    : settings.permission_profile === 'smart'
 
   return (
     <div className="space-y-5">
@@ -31,10 +49,10 @@ export function ModelSection(): React.JSX.Element | null {
           className={`${inputClass} font-mono`}
         />
       </Field>
-      {settings.permission_profile === 'smart' && (
+      {smartActive && (
         <Field
           label="Judge model"
-          hint="Model that reviews tool calls under the smart permission profile. Same provider:model format. Empty judges with the chat's model."
+          hint="Model that reviews tool calls under smart approval. Same provider:model format. Empty judges with the chat's model."
           keywords="judge model reviewer approval smart permission profile"
         >
           <input

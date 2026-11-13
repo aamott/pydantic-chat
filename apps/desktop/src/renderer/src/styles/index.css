@@ -8,6 +8,55 @@
 @custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
 
 /*
+ * Semantic color pairs for the `data-theme` light/dark variants. One class
+ * per color keeps Tailwind's conflict lint quiet — a base class plus its
+ * `dark:` counterpart on the same element sets the same property twice.
+ * Migrate `x-neutral-*` + `dark:x-neutral-*` pairs onto these as touched.
+ */
+.text-strong {
+  color: var(--color-neutral-800);
+}
+[data-theme='dark'] .text-strong,
+[data-theme='dark'].text-strong {
+  color: var(--color-neutral-200);
+}
+.text-muted {
+  color: var(--color-neutral-500);
+}
+[data-theme='dark'] .text-muted,
+[data-theme='dark'].text-muted {
+  color: var(--color-neutral-400);
+}
+.border-accent {
+  border-color: var(--color-blue-500);
+}
+[data-theme='dark'] .border-accent,
+[data-theme='dark'].border-accent {
+  border-color: var(--color-blue-400);
+}
+.bg-accent-soft {
+  background-color: var(--color-blue-50);
+}
+[data-theme='dark'] .bg-accent-soft,
+[data-theme='dark'].bg-accent-soft {
+  background-color: color-mix(in oklab, var(--color-blue-950) 40%, transparent);
+}
+.border-subtle {
+  border-color: var(--color-neutral-200);
+}
+[data-theme='dark'] .border-subtle,
+[data-theme='dark'].border-subtle {
+  border-color: var(--color-neutral-700);
+}
+.hover-bg-subtle:hover {
+  background-color: var(--color-neutral-50);
+}
+[data-theme='dark'] .hover-bg-subtle:hover,
+[data-theme='dark'].hover-bg-subtle:hover {
+  background-color: var(--color-neutral-800);
+}
+
+/*
  * Chat transcript prose: Streamdown renders with its own Tailwind defaults;
  * these rules only set block rhythm + text size inside a message.
  */

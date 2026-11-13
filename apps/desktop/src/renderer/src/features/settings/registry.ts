@@ -13,6 +13,7 @@ import { ModelSection } from './sections/ModelSection'
 import { PermissionsSection } from './sections/PermissionsSection'
 import { ApiKeysSection } from './sections/ApiKeys'
 import { McpServersSection } from './sections/McpServersSection'
+import { ToolProfilesSection } from './sections/ToolProfilesSection'
 
 export interface SettingsSection {
   /** Stable id — nav keys and `settings-section-{id}` anchor targets. */
@@ -46,6 +47,14 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
       'permission profile approval bypass smart manual read-only readonly ask allow allowed deny denied whitelist blacklist commands shell bash terminal file patterns glob filesystem secrets env',
     ],
     component: PermissionsSection,
+  },
+  {
+    id: 'tool-profiles',
+    title: 'Tool Profiles',
+    keywords: [
+      'tool profile profiles permission custom builtin duplicate approval bypass smart manual tools filesystem shell planning mcp prefix allowlist skills system workspace read-only readonly',
+    ],
+    component: ToolProfilesSection,
   },
   {
     id: 'mcp-servers',
