@@ -28,7 +28,7 @@ export function AttachPicker({
   workspaceId,
   onInsert,
   disabled,
-}: AttachPickerProps): React.JSX.Element {
+}: Readonly<AttachPickerProps>): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const [filter, setFilter] = useState('')
   const state = useWorkspaceFiles(workspaceId, open)

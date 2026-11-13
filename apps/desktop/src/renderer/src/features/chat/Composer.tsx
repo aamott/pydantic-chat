@@ -52,7 +52,7 @@ export function Composer({
   onSend,
   onStop,
   disabled,
-}: ComposerProps): React.JSX.Element {
+}: Readonly<ComposerProps>): React.JSX.Element {
   const [text, setText] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const bubbleRef = useRef<HTMLDivElement>(null)
@@ -63,12 +63,9 @@ export function Composer({
   const [mention, setMention] = useState<MentionQuery | null>(null)
   const [mentionIndex, setMentionIndex] = useState(0)
   const mentionFiles = useWorkspaceFiles(workspaceId, mention !== null)
+  const files = mentionFiles.status === 'ready' ? mentionFiles.files : []
   const mentionShown = mention
-    ? filterMentionFiles(
-        mentionFiles.status === 'ready' ? mentionFiles.files : [],
-        mention.query,
-        MENTION_MAX_SHOWN,
-      )
+    ? filterMentionFiles(files, mention.query, MENTION_MAX_SHOWN)
     : []
   /* Clamp: the list can shrink under the highlight as the query narrows. */
   const activeMentionIndex = Math.min(
@@ -116,37 +113,45 @@ export function Composer({
     })
   }
 
+  /**
+   * Route a keystroke to the open mention popup. Returns true when the
+   * key was consumed — no other keydown handling should run.
+   */
+  const onMentionKeyDown = (
+    e: React.KeyboardEvent<HTMLTextAreaElement>,
+  ): boolean => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      setMentionIndex(
+        Math.min(
+          Math.max(activeMentionIndex + (e.key === 'ArrowDown' ? 1 : -1), 0),
+          Math.max(mentionShown.length - 1, 0),
+        ),
+      )
+      return true
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      e.stopPropagation()
+      setMention(null)
+      return true
+    }
+    if (e.key === 'Enter' || e.key === 'Tab') {
+      const file = mentionShown[activeMentionIndex]
+      /* No matches: Enter falls through to send; Tab keeps its default
+       * focus move. */
+      if (!file) return false
+      e.preventDefault()
+      insertMention(file)
+      return true
+    }
+    return false
+  }
+
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
     /* Mention popup owns the caret keys while open. `isComposing` leaves
      * IME candidate windows (e.g. Japanese input) untouched. */
-    if (mention && !e.nativeEvent.isComposing) {
-      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-        e.preventDefault()
-        setMentionIndex(
-          Math.min(
-            Math.max(activeMentionIndex + (e.key === 'ArrowDown' ? 1 : -1), 0),
-            Math.max(mentionShown.length - 1, 0),
-          ),
-        )
-        return
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        e.stopPropagation()
-        setMention(null)
-        return
-      }
-      if (e.key === 'Enter' || e.key === 'Tab') {
-        const file = mentionShown[activeMentionIndex]
-        if (file) {
-          e.preventDefault()
-          insertMention(file)
-          return
-        }
-        /* No matches: Enter falls through to send; Tab keeps its default
-         * focus move. */
-      }
-    }
+    if (mention && !e.nativeEvent.isComposing && onMentionKeyDown(e)) return
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       send()
@@ -214,7 +219,7 @@ export function Composer({
               ? `mention-option-${activeMentionIndex}`
               : undefined
           }
-          className="max-h-40 min-h-[1.5rem] w-full resize-none bg-transparent text-sm outline-none placeholder:text-neutral-400 disabled:cursor-not-allowed"
+          className="max-h-40 min-h-6 w-full resize-none bg-transparent text-sm outline-none placeholder:text-neutral-400 disabled:cursor-not-allowed"
         />
         {mention && workspaceId && (
           <MentionList
