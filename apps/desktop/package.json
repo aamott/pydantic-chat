@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
-    "verify": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "verify": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && vitest run",
+    "test": "vitest run",
     "dist": "electron-vite build && node node_modules/electron-builder/cli.js --dir"
   },
   "dependencies": {
@@ -37,6 +38,7 @@
     "electron-vite": "6.0.0",
     "tailwindcss": "4.3.4",
     "typescript": "5.9.3",
-    "vite": "8.3.5"
+    "vite": "8.3.5",
+    "vitest": "^5.1.0"
   }
 }

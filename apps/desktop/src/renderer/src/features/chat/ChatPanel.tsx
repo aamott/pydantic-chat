@@ -15,6 +15,7 @@ import { AlertCircle, FolderOpen, Settings, X } from 'lucide-react'
 import { findChatSummary, getChat, useChatsStore } from '../../stores/chats'
 import type { AppChat } from '../../lib/transport'
 import { asRunMeta, latestDataPart } from '../../lib/dataParts'
+import { lastUserMessage, messageText } from '../../lib/messages'
 import { MessageList } from './MessageList'
 import { Composer } from './Composer'
 import { RunMetaBadge } from './RunMetaBadge'
@@ -121,6 +122,30 @@ function ChatView({ chat }: { chat: AppChat }): React.JSX.Element {
     [messages],
   )
 
+  /**
+   * One path covers retry-after-error, retry-after-cancel, and edit:
+   * `sendMessage({text, messageId})` truncates client state at the named
+   * user message, replaces its text, and POSTs `submit-message`. The server
+   * cuts stored history just before the matching user prompt (keeping the
+   * replaced tail as a branch) — or appends when the id was never stored,
+   * which is the failed-run case: nothing, not even the prompt, persists.
+   * `regenerate()` must NOT back retry: the server rejects it for unstored
+   * tails (docs/research/conversation-durability.md §2-3).
+   */
+  const resubmitUserMessage = (messageId: string, text: string): void => {
+    void sendMessage({ text, messageId }).catch((err: unknown) => {
+      // InvalidArgumentError if the id vanished from state mid-click —
+      // request errors land in `error`/the banner instead.
+      console.warn('Resubmit failed:', err)
+    })
+  }
+
+  /** Error-banner retry: resubmit the latest user prompt verbatim. */
+  const lastUser = lastUserMessage(messages)
+  const retry = lastUser
+    ? (): void => resubmitUserMessage(lastUser.id, messageText(lastUser))
+    : undefined
+
   return (
     <>
       {runMeta && (
@@ -132,21 +157,20 @@ function ChatView({ chat }: { chat: AppChat }): React.JSX.Element {
         messages={messages}
         status={status}
         onApprovalResponse={addToolApprovalResponse}
+        onEditMessage={resubmitUserMessage}
+        onRegenerate={(id) => void regenerate({ messageId: id })}
       />
       {error && (
-        <ChatError
-          error={error}
-          onDismiss={clearError}
-          onRetry={() => void regenerate()}
-        />
+        <ChatError error={error} onDismiss={clearError} onRetry={retry} />
       )}
+      {/* Composer stays enabled in `error` status so the user can also
+          just retype; `sendMessage` self-clears the error on send. */}
       <Composer
         chatId={chat.id}
         workspaceId={workspaceId}
         status={status}
         onSend={(text) => void sendMessage({ text })}
         onStop={() => void stopActive()}
-        disabled={status === 'error'}
       />
     </>
   )
@@ -160,7 +184,8 @@ function ChatError({
 }: {
   error: Error
   onDismiss: () => void
-  onRetry: () => void
+  /** Undefined when there's no user message to resubmit — no button then. */
+  onRetry?: () => void
 }): React.JSX.Element {
   const statusCode =
     error instanceof APICallError ? error.statusCode : undefined
@@ -186,13 +211,15 @@ function ChatError({
   return (
     <Banner tone="error">
       <span className="truncate">{describeError(error)}</span>
-      <button
-        type="button"
-        onClick={onRetry}
-        className="shrink-0 rounded bg-red-600 px-2 py-0.5 text-white hover:bg-red-700"
-      >
-        Retry
-      </button>
+      {onRetry && (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="shrink-0 rounded bg-red-600 px-2 py-0.5 text-white hover:bg-red-700"
+        >
+          Retry
+        </button>
+      )}
       <button
         type="button"
         onClick={onDismiss}

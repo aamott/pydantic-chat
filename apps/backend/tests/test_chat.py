@@ -409,3 +409,153 @@ def test_stop_cancels_run_and_saves_partial(client, monkeypatch):
     assert messages, "partial history was not saved on cancel"
     assert messages[0]["role"] == "user"
     assert messages[0]["parts"][0]["text"] == "hello agent"
+
+
+def _failing_model():
+    """A model that streams a partial answer, then dies like a provider error."""
+
+    async def fail_stream(messages, info):
+        yield "partial answer"
+        raise RuntimeError("provider blew up mid-stream")
+
+    return FunctionModel(stream_function=fail_stream)
+
+
+async def test_failed_run_persists_failed_turn(client, monkeypatch):
+    """A mid-stream provider error still saves the user prompt + partial turn.
+
+    The stock adapter only saves on ``AgentRunResultEvent``; without failure
+    persistence the failed turn — prompt included — never reaches the store.
+    """
+    test_client, tmp_path = client
+    workspace = _create_workspace(test_client, tmp_path)
+    chat = _create_chat(test_client, workspace["id"])
+
+    monkeypatch.setattr(
+        "app.agent.factory.resolve_model", lambda spec: _failing_model()
+    )
+    response = test_client.post(
+        "/api/chat", json=_chat_payload(chat["id"]), headers=AUTH
+    )
+    # The error travels as a stream chunk, not an HTTP error status.
+    assert response.status_code == 200
+    types = {event["type"] for event in _sse_events(response.text)}
+    assert "error" in types
+
+    # The failed turn is on the stored entry chain: user prompt, then whatever
+    # the run produced before dying (the interrupted response).
+    store = test_client.app.state.store
+    record = await store.read_record(chat["id"])
+    assert record is not None, "failed run saved nothing — not even the prompt"
+    entries = await store.read_history(record.head_id)
+    assert len(entries) >= 2, "expected the user prompt plus the partial turn"
+    request = entries[0].message
+    assert any(
+        getattr(part, "part_kind", None) == "user-prompt"
+        and part.content == "hello agent"
+        for part in request.parts
+    )
+    assert getattr(entries[1].message, "state", None) == "interrupted"
+
+    # The transcript endpoint shows the failed turn too, so it survives reload.
+    messages = test_client.get(
+        f"/api/chats/{chat['id']}/messages", headers=AUTH
+    ).json()
+    assert messages[0]["role"] == "user"
+    assert messages[0]["parts"][0]["text"] == "hello agent"
+
+
+async def test_retry_after_failed_run_does_not_duplicate(client, monkeypatch):
+    """Resubmitting the same UIMessage.id after a failure cuts, not appends.
+
+    This is the client's ``sendMessage({text, messageId})`` retry: the message
+    is resent as the last (only) message. Its id matches the stored request
+    from the failed turn, so history is truncated just before it and the
+    replaced tail is kept as a branch — one stored user request, no duplicate.
+    """
+    test_client, tmp_path = client
+    workspace = _create_workspace(test_client, tmp_path)
+    chat = _create_chat(test_client, workspace["id"])
+
+    monkeypatch.setattr(
+        "app.agent.factory.resolve_model", lambda spec: _failing_model()
+    )
+    failed = test_client.post(
+        "/api/chat", json=_chat_payload(chat["id"]), headers=AUTH
+    )
+    assert failed.status_code == 200
+
+    # The retry: same chat, same user message id — a working model this time.
+    monkeypatch.setattr(
+        "app.agent.factory.resolve_model",
+        lambda spec: TestModel(call_tools=[], custom_output_text="second try"),
+    )
+    retried = test_client.post(
+        "/api/chat", json=_chat_payload(chat["id"]), headers=AUTH
+    )
+    assert retried.status_code == 200
+    types = {event["type"] for event in _sse_events(retried.text)}
+    assert "finish" in types
+
+    # Exactly one user request + the new response; the failed tail branched off.
+    messages = test_client.get(
+        f"/api/chats/{chat['id']}/messages", headers=AUTH
+    ).json()
+    assert [m["role"] for m in messages] == ["user", "assistant"]
+    assert messages[0]["parts"][0]["text"] == "hello agent"
+
+    store = test_client.app.state.store
+    record = await store.read_record(chat["id"])
+    entries = await store.read_history(record.head_id)
+    user_prompts = [
+        entry
+        for entry in entries
+        if any(getattr(p, "part_kind", None) == "user-prompt" for p in entry.message.parts)
+    ]
+    assert len(user_prompts) == 1, "retry duplicated the user prompt"
+    assert record.branches, "the failed turn should be kept as a stored branch"
+
+
+async def test_disconnect_mid_stream_persists_partial(client, monkeypatch):
+    """Client disconnect saves the captured history via the same failure path.
+
+    Disconnect produces ``CancelledError``/``GeneratorExit`` — BaseExceptions
+    that bypass the event stream's ``except Exception`` and ``on_cancel``
+    alike. The adapter subclass catches them before re-raising.
+    """
+    test_client, tmp_path = client
+    workspace = _create_workspace(test_client, tmp_path)
+    chat = _create_chat(test_client, workspace["id"])
+
+    import asyncio
+
+    async def hang_stream(messages, info):
+        yield "partial"
+        await asyncio.Event().wait()  # hangs until the run is torn down
+        yield "unreachable"  # pragma: no cover
+
+    monkeypatch.setattr(
+        "app.agent.factory.resolve_model",
+        lambda spec: FunctionModel(stream_function=hang_stream),
+    )
+
+    # Stream until the model is mid-response (the opening `start` chunk is a
+    # `before_stream` event that precedes the run), then drop the connection.
+    with test_client.stream(
+        "POST", "/api/chat", json=_chat_payload(chat["id"]), headers=AUTH
+    ) as response:
+        assert response.status_code == 200
+        for line in response.iter_lines():
+            if '"text-delta"' in line:
+                break
+
+    store = test_client.app.state.store
+    record = await store.read_record(chat["id"])
+    assert record is not None, "disconnect saved nothing — not even the prompt"
+    entries = await store.read_history(record.head_id)
+    assert any(
+        getattr(part, "part_kind", None) == "user-prompt"
+        and part.content == "hello agent"
+        for entry in entries
+        for part in entry.message.parts
+    )
