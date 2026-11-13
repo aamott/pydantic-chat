@@ -2,6 +2,10 @@
  * Composer permission-profile picker: a compact button + dropdown that sets
  * the chat's `permission_profile` override via `PATCH /api/chats/{id}`.
  *
+ * Profiles come from `GET /api/tool-profiles` (builtin + custom, cached in
+ * `stores/profiles.ts`) — builtin rows carry a lock marker; unknown ids
+ * (deleted custom profiles) render as their raw id.
+ *
  * Inherit chain, weakest to strongest override:
  *   global `settings.permission_profile`
  *   → workspace `permission_profile`
@@ -10,42 +14,16 @@
  * text so the effective profile is never a mystery.
  */
 import { useEffect, useRef, useState } from 'react'
-import { Check, ChevronUp, ShieldCheck } from 'lucide-react'
+import { Check, ChevronUp, Lock, ShieldCheck } from 'lucide-react'
+import { profileName } from '../../lib/profiles'
 import { findChatSummary, useChatsStore } from '../../stores/chats'
 import { useModelsStore } from '../../stores/models'
+import { useProfilesStore } from '../../stores/profiles'
 import { Popover } from './Popover'
 
-/** Profile value → label + one-line sublabel (same semantics as Settings). */
-const PROFILES: Array<{ value: string; name: string; description: string }> = [
-  {
-    value: 'bypass',
-    name: 'Bypass',
-    description: 'Run every tool call without asking. Trusted workspaces only.',
-  },
-  {
-    value: 'smart',
-    name: 'Smart',
-    description: 'A judge model auto-approves low-risk calls; risky ones ask.',
-  },
-  {
-    value: 'manual',
-    name: 'Manual',
-    description: 'Ask before every file write and shell command.',
-  },
-  {
-    value: 'read-only',
-    name: 'Read-only',
-    description: 'Read files only — no writes, no shell.',
-  },
-]
-
-function profileName(value: string | null | undefined): string | null {
-  return PROFILES.find((p) => p.value === value)?.name ?? null
-}
-
 interface ProfilePickerProps {
-  chatId: string
-  disabled?: boolean
+  readonly chatId: string
+  readonly disabled?: boolean
 }
 
 export function ProfilePicker({
@@ -55,14 +33,17 @@ export function ProfilePicker({
   const workspaces = useChatsStore((s) => s.workspaces)
   const updateChat = useChatsStore((s) => s.updateChat)
   const globalProfile = useModelsStore((s) => s.globalProfile)
-  const ensureLoaded = useModelsStore((s) => s.ensureLoaded)
+  const ensureModelsLoaded = useModelsStore((s) => s.ensureLoaded)
+  const profiles = useProfilesStore((s) => s.profiles)
+  const ensureProfilesLoaded = useProfilesStore((s) => s.ensureLoaded)
 
   const [open, setOpen] = useState(false)
   const buttonRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
-    void ensureLoaded()
-  }, [ensureLoaded])
+    void ensureModelsLoaded()
+    void ensureProfilesLoaded()
+  }, [ensureModelsLoaded, ensureProfilesLoaded])
 
   const chat = findChatSummary(workspaces, chatId)
   const workspace = workspaces.find((w) => w.id === chat?.workspace_id)
@@ -75,10 +56,12 @@ export function ProfilePicker({
     setOpen(false)
   }
 
+  const inheritedName = profileName(profiles, inheritedProfile)
   const buttonLabel =
     override !== null
-      ? (profileName(override) ?? override)
-      : `inherited (${(profileName(inheritedProfile) ?? inheritedProfile).toLowerCase()})`
+      ? profileName(profiles, override)
+      : `inherited (${inheritedName.toLowerCase()})`
+  const titleProfile = override ?? `${inheritedProfile} (inherited)`
 
   return (
     <>
@@ -89,7 +72,7 @@ export function ProfilePicker({
         disabled={disabled}
         aria-haspopup="dialog"
         aria-expanded={open}
-        title={`Permission profile: ${override ?? `${inheritedProfile} (inherited)`}`}
+        title={`Permission profile: ${titleProfile}`}
         className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-xs text-neutral-600 hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-50"
       >
         <ShieldCheck className="h-3.5 w-3.5 text-neutral-400" />
@@ -103,23 +86,35 @@ export function ProfilePicker({
           onClose={() => setOpen(false)}
           className="w-64"
         >
-          <div role="listbox" aria-label="Permission profile" className="p-1">
+          <div role="group" aria-label="Permission profile" className="p-1">
             {/* Inherit option — null clears the chat override. */}
             <OptionRow
               name="Inherit"
-              description={`Use the workspace/global default (${inheritedProfile}).`}
+              description={`Use the workspace/global default (${inheritedName}).`}
               selected={override === null}
               onPick={() => pick(null)}
             />
-            {PROFILES.map((profile) => (
+            {profiles.map((profile) => (
               <OptionRow
-                key={profile.value}
+                key={profile.id}
                 name={profile.name}
                 description={profile.description}
-                selected={override === profile.value}
-                onPick={() => pick(profile.value)}
+                builtin={profile.builtin}
+                selected={override === profile.id}
+                onPick={() => pick(profile.id)}
               />
             ))}
+            {/* A saved override that no longer resolves (deleted custom
+                profile) stays selectable so the row isn't a dead end. */}
+            {override !== null &&
+              !profiles.some((p) => p.id === override) && (
+                <OptionRow
+                  name={override}
+                  description="Unknown profile — the backend falls back to Manual."
+                  selected
+                  onPick={() => setOpen(false)}
+                />
+              )}
           </div>
         </Popover>
       )}
@@ -130,24 +125,33 @@ export function ProfilePicker({
 function OptionRow({
   name,
   description,
+  builtin = false,
   selected,
   onPick,
-}: {
+}: Readonly<{
   name: string
   description: string
+  builtin?: boolean
   selected: boolean
   onPick: () => void
-}): React.JSX.Element {
+}>): React.JSX.Element {
   return (
     <button
       type="button"
-      role="option"
-      aria-selected={selected}
+      aria-current={selected}
       onClick={onPick}
       className="flex w-full items-start gap-2 rounded-md px-2.5 py-1.5 text-left hover:bg-neutral-100 focus:bg-neutral-100 focus:outline-none"
     >
       <span className="min-w-0 flex-1">
-        <span className="block text-xs text-neutral-800">{name}</span>
+        <span className="flex items-center gap-1 text-xs text-neutral-800">
+          {builtin && (
+            <Lock
+              className="h-3 w-3 shrink-0 text-neutral-400"
+              aria-label="Built-in profile"
+            />
+          )}
+          <span className="truncate">{name}</span>
+        </span>
         <span className="block text-[11px] text-neutral-400">{description}</span>
       </span>
       {selected && <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-600" />}
