@@ -59,6 +59,7 @@ from app.profiles import (
 
 if TYPE_CHECKING:
     from pydantic_ai.models import Model
+    from pydantic_ai_harness.step_persistence import StepPersistence
 
     from app.db.app_tables import Workspace
 
@@ -432,6 +433,12 @@ def build_run_kwargs(
             gate=profile.approval_mode != "bypass",
         ),
         _planning_capability(_setting(chat_settings, "chat_id")),
+        # Mid-turn durability: a ContinuableSnapshot lands in steps.db at
+        # every settled tool boundary and via on_run_error — the foundation
+        # for resuming an interrupted run without re-running completed
+        # side-effecting tools. Additive only; the adapter's conversation
+        # store still owns transcript persistence.
+        _step_persistence_capability(),
         # skills=None -> all discovered; [] -> none; names -> include=frozenset.
         *_skills_capabilities(profile),
         # A profile tool allowlist (exact names and/or {server}_ prefixes)
@@ -486,3 +493,25 @@ def _planning_capability(chat_id: str | None) -> Planning:
 
     store = SqlitePlanStore(str(data_dir() / "plans.db"), session=str(chat_id))
     return Planning(store=store)
+
+
+def _step_persistence_capability() -> StepPersistence:
+    """``StepPersistence`` snapshotting every run's settled boundaries into ``steps.db``.
+
+    A sibling file to ``plans.db``, not ``app.db``: ``SqliteStepStore`` owns
+    its schema outright (runs, events, snapshots, tool effects + media), and
+    ``app.db`` stays the ``ChatStore``-owned conversation record. ``run_id``
+    and ``agent_name`` stay unset so each run keys on ``ctx.run_id`` —
+    unique per ``Agent.run``, which the ``register_run`` single-shot
+    contract requires — while the chat id lands on ``conversation_id``,
+    which a future resume path finds runs by via
+    ``list_runs(conversation_id=chat_id)`` then ``continue_run``.
+    """
+    from pydantic_ai_harness.step_persistence import (
+        SqliteStepStore,
+        StepPersistence,
+    )
+
+    return StepPersistence(
+        store=SqliteStepStore(database=data_dir() / "steps.db")
+    )
