@@ -34,8 +34,9 @@ async def patch_workspace(
     """Update ``display_name``/``last_chat_id``/``permission_profile``.
 
     ``last_chat_id`` and ``permission_profile`` take explicit ``null`` to clear
-    (the latter falling back to the global permission setting); values are
-    schema-validated to the four profiles.
+    (the latter falling back to the global permission setting). Profile ids
+    are free-form — custom profiles make any string legal, and an unknown id
+    resolves to ``manual`` at run time.
     """
     workspace = await store.get_workspace(workspace_id)
     if workspace is None:

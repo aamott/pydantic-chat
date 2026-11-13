@@ -1157,6 +1157,9 @@ coder = [
     { name = "json-repair" },
     { name = "ripgrep", marker = "sys_platform != 'android'" },
 ]
+skills = [
+    { name = "pyyaml" },
+]
 
 [[package]]
 name = "pydantic-ai-slim"
@@ -1199,7 +1202,7 @@ source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
     { name = "httpx" },
-    { name = "pydantic-ai-harness", extra = ["coder"] },
+    { name = "pydantic-ai-harness", extra = ["coder", "skills"] },
     { name = "pydantic-ai-slim", extra = ["anthropic", "google", "mcp", "openai"] },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -1215,7 +1218,7 @@ dev = [
 requires-dist = [
     { name = "fastapi" },
     { name = "httpx" },
-    { name = "pydantic-ai-harness", extras = ["coder"] },
+    { name = "pydantic-ai-harness", extras = ["coder", "skills"] },
     { name = "pydantic-ai-slim", extras = ["anthropic", "openai", "google", "mcp"] },
     { name = "uvicorn", extras = ["standard"] },
 ]

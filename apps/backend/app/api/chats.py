@@ -51,7 +51,8 @@ async def patch_chat(
     - ``thinking`` must be one of the effective model's catalog
       ``thinking_levels`` when the model is catalog-known (free-form otherwise —
       Ollama and ``openai-compatible`` have no fixed level set);
-    - ``permission_profile`` is schema-limited to the four profiles or ``null``;
+    - ``permission_profile`` is a free-form tool-profile id or ``null``
+      (unknown ids resolve to ``manual`` at run time);
     - ``title``, when present, must be a non-empty string.
     """
     chat = await store.get_chat(chat_id)

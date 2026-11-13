@@ -11,7 +11,6 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.agent.factory import PermissionProfile
 from app.db import ChatSummary, Workspace
 
 
@@ -93,7 +92,7 @@ class WorkspacePatch(BaseModel):
 
     display_name: str | None = Field(default=None, min_length=1)
     last_chat_id: str | None = None
-    permission_profile: PermissionProfile | None = None
+    permission_profile: str | None = None
 
 
 class ChatCreate(BaseModel):
@@ -109,7 +108,8 @@ class ChatPatch(BaseModel):
     ``model`` is a ``provider:model`` spec (``null`` clears the override).
     ``thinking`` is a normalized level (``off``/``low``/``medium``/``high``,
     free-form tolerated for models outside the static catalog) or ``null``.
-    ``permission_profile`` takes the four profiles or ``null`` to inherit.
+    ``permission_profile`` is any tool-profile id (builtin or custom, free-form —
+    an unknown id resolves to ``manual`` at run time) or ``null`` to inherit.
     ``title`` must be a non-empty string when present — ``null`` is rejected.
     """
 
@@ -118,7 +118,7 @@ class ChatPatch(BaseModel):
     title: str | None = Field(default=None, min_length=1)
     model: str | None = None
     thinking: str | None = None
-    permission_profile: PermissionProfile | None = None
+    permission_profile: str | None = None
 
 
 class FileOut(BaseModel):
@@ -180,6 +180,46 @@ class SettingsOut(BaseModel):
     denied_patterns: list[str]
     ollama_base_url: str
     judge_model: str | None
+
+
+class ToolCatalogEntry(BaseModel):
+    """One selectable item in the tool-profile editor's tool picker.
+
+    ``group`` identifies the source capability (or ``"mcp"`` for the
+    ``{server}_*`` prefix entries, flagged by ``prefix=True`` — those match a
+    profile's ``tool_prefixes``, everything else matches ``tools``).
+    """
+
+    name: str
+    description: str
+    group: Literal["filesystem", "shell", "planning", "mcp"]
+    prefix: bool = False
+
+
+class SkillOut(BaseModel):
+    """One discovered skill in the ``GET /api/skills`` response."""
+
+    name: str
+    description: str
+    path: str
+    origin: Literal["system", "workspace"]
+    model_invocable: bool
+    user_invocable: bool
+
+
+class SkippedSkillOut(BaseModel):
+    """A ``SKILL.md`` or library path left out of the catalog, and why."""
+
+    path: str
+    reason: str
+    message: str
+
+
+class SkillsCatalogOut(BaseModel):
+    """``GET /api/skills`` response — discovered skills plus what was skipped."""
+
+    skills: list[SkillOut]
+    skipped: list[SkippedSkillOut]
 
 
 class SettingsPatch(BaseModel):

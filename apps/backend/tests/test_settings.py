@@ -158,6 +158,19 @@ def test_judge_model_unset_round_trip_and_clear(client):
     )
 
 
+def test_permission_profile_accepts_custom_profile_id(client):
+    """Profile ids are free-form: custom profiles make any non-empty str legal."""
+    test_client, _ = client
+    response = test_client.put(
+        "/api/settings",
+        json={"permission_profile": "my-custom-profile"},
+        headers=AUTH,
+    )
+    assert response.status_code == 200
+    assert response.json()["permission_profile"] == "my-custom-profile"
+    assert _settings(test_client)["permission_profile"] == "my-custom-profile"
+
+
 def test_settings_single_key_put(client):
     test_client, _ = client
     response = test_client.put(
@@ -340,7 +353,7 @@ def test_settings_validation_errors(client):
         {"default_model": "bogus:model"},  # unknown provider prefix
         {"default_model": "no-colon"},
         {"judge_model": "unknown:x"},
-        {"permission_profile": "yolo"},
+        {"permission_profile": ""},  # empty id — custom profile ids are free-form but non-empty
         {"theme": "neon"},
         {"ollama_base_url": "ftp://nope"},
         {"allowed_paths": ["x"]},  # unknown key — extras are forbidden

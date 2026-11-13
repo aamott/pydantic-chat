@@ -55,7 +55,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 PERMISSION_PROFILES: tuple[str, ...] = get_args(PermissionProfile)
-"""Valid ``permission_profile`` values — the agent factory's ``Literal``."""
+"""The builtin ``permission_profile`` ids — kept for callers listing builtins.
+
+Custom tool profiles make any non-empty string a legal ``permission_profile``
+value: unknown ids resolve to ``manual`` at run time, so writes here are
+tolerant rather than schema-rejected."""
 
 THEMES: tuple[str, ...] = ("light", "dark", "system")
 """Valid ``theme`` values; mirrored by the renderer's Tailwind dark-mode setup."""
@@ -212,8 +216,11 @@ async def _settings_out(store: ChatStore) -> SettingsOut:
     return SettingsOut(
         theme=theme if theme in THEMES else DEFAULT_THEME,
         default_model=raw.get("default_model") or DEFAULT_MODEL,
+        # Any non-empty id echoes back verbatim — it may name a custom
+        # profile; unknown ids resolve to 'manual' when a run builds.
         permission_profile=(
-            profile if profile in PERMISSION_PROFILES else DEFAULT_PERMISSION_PROFILE
+            profile if isinstance(profile, str) and profile
+            else DEFAULT_PERMISSION_PROFILE
         ),
         allowed_commands=_list_value(raw, "allowed_commands"),
         denied_commands=_list_value(raw, "denied_commands"),
@@ -271,8 +278,9 @@ async def _apply_setting(store: ChatStore, key: str, value: Any) -> None:
     text = _require_str(key, value)
     if key == "theme" and text not in THEMES:
         raise _bad_value(key, f"must be one of: {', '.join(THEMES)}")
-    if key == "permission_profile" and text not in PERMISSION_PROFILES:
-        raise _bad_value(key, f"must be one of: {', '.join(PERMISSION_PROFILES)}")
+    # Custom profiles make any non-empty id legal; unknown resolves to manual.
+    if key == "permission_profile" and not text.strip():
+        raise _bad_value(key, "must be a non-empty tool profile id")
     if key in MODEL_SPEC_KEYS:
         _validate_model_spec(key, text)
     await store.set_setting(key, text)

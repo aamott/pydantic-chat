@@ -133,6 +133,103 @@ export interface ModelsOut {
 }
 
 /* ------------------------------------------------------------------ */
+/* Tool profiles API contract (/api/tool-profiles + /api/tool-catalog) */
+/* ------------------------------------------------------------------ */
+
+/**
+ * How eagerly a profile runs tool calls without asking; maps to the
+ * backend's `Permissions` capability modes (full / auto / read-only).
+ * `smart` additionally binds an `ApprovalReviewer` judge.
+ */
+export type ApprovalMode = 'bypass' | 'smart' | 'manual'
+
+/**
+ * One permission profile (`GET /api/tool-profiles` row).
+ *
+ * `id` is the value stored in `permission_profile` fields — builtin ids
+ * keep the legacy literals (`bypass`/`smart`/`manual`/`read-only`), custom
+ * profiles get a server-assigned slug. `tools: null` means "all tools";
+ * `tool_prefixes` allowlists whole MCP servers by their `{server}_`
+ * name prefix; `skills: null` means "all discovered skills" while `[]`
+ * disables skills entirely.
+ */
+export interface ToolProfile {
+  id: string
+  name: string
+  description: string
+  approval_mode: ApprovalMode
+  workspace_read_only: boolean
+  tools: string[] | null
+  tool_prefixes: string[]
+  skills: string[] | null
+  /** Server-owned constant — PUT/DELETE on builtins return 403/409. */
+  builtin: boolean
+}
+
+/**
+ * `POST /api/tool-profiles` / `PUT /api/tool-profiles/{id}` body — the
+ * profile shape minus `builtin`; `id` is optional on POST (the server may
+ * assign a slug from `name`) and redundant on PUT (the path carries it).
+ */
+export interface ToolProfileInput {
+  id?: string
+  name: string
+  description: string
+  approval_mode: ApprovalMode
+  workspace_read_only: boolean
+  tools: string[] | null
+  tool_prefixes: string[]
+  skills: string[] | null
+}
+
+/** Capability-group a catalog tool belongs to ('mcp' = a `{server}_*` prefix row). */
+export type ToolGroup = 'filesystem' | 'shell' | 'planning' | 'mcp'
+
+/**
+ * One selectable item in `GET /api/tool-catalog`. Builtin tools match a
+ * profile's `tools`; `prefix: true` rows (`name` like `github_*`) match a
+ * profile's `tool_prefixes` — store the prefix without the trailing `*`.
+ */
+export interface ToolCatalogEntry {
+  name: string
+  description: string
+  group: ToolGroup
+  prefix: boolean
+}
+
+/** `GET /api/tool-catalog` — the editor's checkbox universe, flat list. */
+export type ToolCatalog = ToolCatalogEntry[]
+
+/* ------------------------------------------------------------------ */
+/* Skills API contract (GET /api/skills)                               */
+/* ------------------------------------------------------------------ */
+
+/** Where a skill's SKILL.md directory was discovered. */
+export type SkillOrigin = 'system' | 'workspace'
+
+/** One discovered skill in `GET /api/skills`. */
+export interface SkillInfo {
+  name: string
+  description: string
+  origin: SkillOrigin
+  path: string
+  model_invocable: boolean
+  user_invocable: boolean
+}
+
+/** A `SKILL.md` the loader skipped, with the reason — diagnostics only. */
+export interface SkippedSkill {
+  path: string
+  reason: string
+  message: string
+}
+
+export interface SkillsOut {
+  skills: SkillInfo[]
+  skipped: SkippedSkill[]
+}
+
+/* ------------------------------------------------------------------ */
 /* IPC surface: Electron main ↔ preload ↔ renderer                    */
 /* ------------------------------------------------------------------ */
 

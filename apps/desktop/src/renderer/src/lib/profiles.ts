@@ -54,6 +54,7 @@ export const TOOL_GROUP_LABELS: Record<ToolGroup, string> = {
   filesystem: 'Filesystem',
   shell: 'Shell',
   planning: 'Planning',
+  mcp: 'MCP servers',
 }
 
 /**
@@ -170,11 +171,25 @@ export function encodeToolSelection(
 }
 
 /**
- * Strip server-owned fields (`id`, `builtin`) from a profile for the
- * POST/PUT body — the path/server owns identity, the client owns content.
+ * Lowercase-kebab slug for a profile id from its display name — the API
+ * requires `id` in the body (`[^/]+`); empty results fall back to
+ * 'profile' (a 409 on collision reads clearly to the user).
+ */
+export function slugifyProfileId(name: string): string {
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+  return slug || 'profile'
+}
+
+/**
+ * POST/PUT body for a profile — the editable fields plus `id` (the API
+ * requires it; PUT's path id wins over the body's anyway).
  */
 export function profileToInput(profile: ToolProfile): ToolProfileInput {
   return {
+    id: profile.id,
     name: profile.name,
     description: profile.description,
     approval_mode: profile.approval_mode,
@@ -186,11 +201,15 @@ export function profileToInput(profile: ToolProfile): ToolProfileInput {
 }
 
 /**
- * POST body for "Duplicate" — same content as the source minus `id`/`builtin`,
- * with a " copy" suffix so the new row reads as a derivative.
+ * POST body for "Duplicate" — the source's content under a derived id
+ * (`<id>-copy`), with a " copy" suffix so the new row reads as a derivative.
  */
 export function duplicateDraft(profile: ToolProfile): ToolProfileInput {
-  return { ...profileToInput(profile), name: `${profile.name} copy` }
+  return {
+    ...profileToInput(profile),
+    id: `${profile.id}-copy`,
+    name: `${profile.name} copy`,
+  }
 }
 
 /** Blank editor state for "New profile" — safe defaults, allow everything. */

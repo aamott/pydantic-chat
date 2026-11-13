@@ -177,7 +177,7 @@ def test_workspace_patch_and_cascade_delete(client):
 
 
 def test_workspace_permission_profile_patch(client):
-    """PATCH accepts the four profiles, rejects others, and null clears the override."""
+    """PATCH accepts any profile id (builtin or custom); null clears the override."""
     test_client, tmp_path = client
     workspace = _create_workspace(test_client, tmp_path)
     assert workspace["permission_profile"] is None  # inherits the global setting
@@ -190,20 +190,30 @@ def test_workspace_permission_profile_patch(client):
     assert patched.status_code == 200
     assert patched.json()["permission_profile"] == "bypass"
 
-    # An unknown profile is a validation error, not a silent write.
+    # Profile ids are free-form now — custom profiles make any string legal;
+    # an id that resolves to nothing falls back to 'manual' at run time.
     assert (
         test_client.patch(
             f"/api/workspaces/{workspace['id']}",
             json={"permission_profile": "everything"},
             headers=AUTH,
         ).status_code
-        == 422
+        == 200
     )
     assert (
         test_client.get("/api/workspaces", headers=AUTH).json()[0][
             "permission_profile"
         ]
-        == "bypass"
+        == "everything"
+    )
+    # A non-string value is still a schema error, not a silent write.
+    assert (
+        test_client.patch(
+            f"/api/workspaces/{workspace['id']}",
+            json={"permission_profile": 5},
+            headers=AUTH,
+        ).status_code
+        == 422
     )
 
     # An explicit null clears the override (back to inheriting the global).

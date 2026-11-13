@@ -15,6 +15,7 @@ import {
   partitionProfiles,
   profileName,
   profileToInput,
+  slugifyProfileId,
 } from './profiles'
 
 const TOOLS = ['read_file', 'write_file', 'shell', 'write_plan']
@@ -229,7 +230,7 @@ describe('profileName', () => {
 })
 
 describe('profileToInput', () => {
-  it('strips id and builtin while keeping nullable lists', () => {
+  it('keeps id (the API requires it) and drops builtin', () => {
     const input = profileToInput(
       profile({
         id: 'abc',
@@ -240,6 +241,7 @@ describe('profileToInput', () => {
       }),
     )
     expect(input).toEqual({
+      id: 'abc',
       name: 'Mine',
       description: '',
       approval_mode: 'manual',
@@ -248,18 +250,17 @@ describe('profileToInput', () => {
       tool_prefixes: [],
       skills: [],
     })
-    expect('id' in input).toBe(false)
     expect('builtin' in input).toBe(false)
   })
 })
 
 describe('duplicateDraft', () => {
-  it('copies the profile with a " copy" name and no id', () => {
+  it('copies the profile with a " copy" name and a derived id', () => {
     const draft = duplicateDraft(
       profile({ id: 'manual', name: 'Manual', builtin: true }),
     )
     expect(draft.name).toBe('Manual copy')
-    expect('id' in draft).toBe(false)
+    expect(draft.id).toBe('manual-copy')
     expect('builtin' in draft).toBe(false)
     expect(draft.tools).toBeNull()
     expect(draft.skills).toBeNull()
@@ -277,5 +278,20 @@ describe('emptyProfileDraft', () => {
       tool_prefixes: [],
       skills: null,
     })
+  })
+})
+
+describe('slugifyProfileId', () => {
+  it('kebab-cases display names', () => {
+    expect(slugifyProfileId('My Reviewer Profile')).toBe(
+      'my-reviewer-profile',
+    )
+    expect(slugifyProfileId('Smart (v2)!')).toBe('smart-v2')
+    expect(slugifyProfileId('  leading/trailing  ')).toBe('leading-trailing')
+  })
+
+  it('falls back to "profile" for names without slug characters', () => {
+    expect(slugifyProfileId('')).toBe('profile')
+    expect(slugifyProfileId('!!!')).toBe('profile')
   })
 })

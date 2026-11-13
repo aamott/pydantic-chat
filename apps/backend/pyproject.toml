@@ -7,7 +7,7 @@ dependencies = [
     "uvicorn[standard]",
     "httpx",
     "pydantic-ai-slim[anthropic,openai,google,mcp]",
-    "pydantic-ai-harness[coder]",
+    "pydantic-ai-harness[coder,skills]",
 ]
 
 [dependency-groups]

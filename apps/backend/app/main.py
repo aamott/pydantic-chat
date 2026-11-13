@@ -9,8 +9,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from app.api import chat, chats, files, mcp, models, settings, workspaces
+from app.api import chat, chats, files, mcp, models, profiles, settings, workspaces
 from app.db import ChatStore
+from app.profiles import ensure_system_skills
 
 BEARER = HTTPBearer(auto_error=False)
 
@@ -28,6 +29,9 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Own the one ``ChatStore`` (``data_dir()/app.db``) for the app's lifetime."""
     store = ChatStore()
     app.state.store = store
+    # Seed data_dir()/skills from the bundled template on first boot; lazy
+    # resolves call this too, so a wiped data dir re-seeds on demand.
+    ensure_system_skills()
     # Live agent runs: chat_id -> CancellationToken, for POST /api/chats/{id}/stop.
     app.state.cancellation_tokens = {}
     try:
@@ -65,6 +69,7 @@ def create_app() -> FastAPI:
     app.include_router(settings.router, dependencies=[Depends(_check_auth)])
     app.include_router(mcp.router, dependencies=[Depends(_check_auth)])
     app.include_router(models.router, dependencies=[Depends(_check_auth)])
+    app.include_router(profiles.router, dependencies=[Depends(_check_auth)])
 
     return app
 

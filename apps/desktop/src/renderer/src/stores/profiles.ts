@@ -15,6 +15,7 @@
 import { create } from 'zustand'
 import type { ToolProfile, ToolProfileInput } from '@pydantic-chat/shared'
 import { apiFetch, apiJson } from '../lib/api'
+import { slugifyProfileId } from '../lib/profiles'
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' }
 
@@ -106,6 +107,9 @@ export const useProfilesStore = create<ProfilesState>()((set, get) => {
 
     save: async (input, existingId) => {
       try {
+        /* The API requires `id` in the body on POST (PUT's path wins over
+         * it anyway) — fall back to a slug of the display name. */
+        const id = existingId ?? (input.id?.trim() || slugifyProfileId(input.name))
         const response = await apiFetch(
           existingId === null
             ? '/api/tool-profiles'
@@ -113,7 +117,7 @@ export const useProfilesStore = create<ProfilesState>()((set, get) => {
           {
             method: existingId === null ? 'POST' : 'PUT',
             headers: JSON_HEADERS,
-            body: JSON.stringify(input),
+            body: JSON.stringify({ ...input, id }),
           },
         )
         if (!response.ok) throw new Error(await errorDetail(response))

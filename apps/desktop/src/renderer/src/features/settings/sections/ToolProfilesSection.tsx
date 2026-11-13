@@ -25,6 +25,7 @@ import {
 import type {
   ApprovalMode,
   SkillInfo,
+  SkillsOut,
   ToolCatalog,
   ToolGroup,
   ToolProfile,
@@ -91,8 +92,16 @@ export function ToolProfilesSection(): React.JSX.Element {
   /** Id of a profile with an in-flight duplicate/delete, or true for save. */
   const [busy, setBusy] = useState<string | boolean>(false)
 
-  const toolNames = (catalog?.tools ?? []).map((t) => t.name)
-  const prefixNames = (catalog?.mcp_prefixes ?? []).map((p) => p.prefix)
+  /* The catalog is flat: `prefix: false` rows are builtin tools (match
+   * `tools`), `prefix: true` rows are `{server}_*` MCP entries (match
+   * `tool_prefixes` — stored without the `*`, matching ToolAllowlist's
+   * startswith). */
+  const toolNames = (catalog ?? [])
+    .filter((e) => !e.prefix)
+    .map((e) => e.name)
+  const prefixNames = (catalog ?? [])
+    .filter((e) => e.prefix)
+    .map((e) => e.name.replace(/\*$/, ''))
   const skillNames = (skills ?? []).map((s) => s.name)
   const catalogsReady = catalog !== null && skills !== null
 
@@ -100,7 +109,7 @@ export function ToolProfilesSection(): React.JSX.Element {
     try {
       const [cat, sk] = await Promise.all([
         apiJson<ToolCatalog>('/api/tool-catalog'),
-        apiJson<{ skills: SkillInfo[] }>('/api/skills'),
+        apiJson<SkillsOut>('/api/skills'),
       ])
       setCatalog(cat)
       setSkills(sk.skills)
@@ -366,7 +375,9 @@ function ProfileEditor({
   onDuplicate,
 }: ProfileEditorProps): React.JSX.Element {
   const readOnly = draft.readOnly
-  const toolNames = (catalog?.tools ?? []).map((t) => t.name)
+  const toolNames = (catalog ?? [])
+    .filter((e) => !e.prefix)
+    .map((e) => e.name)
   const skillNames = skills.map((s) => s.name)
 
   const toggle =
@@ -391,7 +402,7 @@ function ProfileEditor({
 
   const groups = TOOL_GROUP_ORDER.map((group) => ({
     group,
-    entries: (catalog?.tools ?? []).filter((t) => t.group === group),
+    entries: (catalog ?? []).filter((e) => e.group === group),
   })).filter((g) => g.entries.length > 0)
 
   return (
@@ -537,22 +548,28 @@ function ProfileEditor({
         <span className="text-sm font-medium text-neutral-800 dark:text-neutral-200">
           MCP servers
         </span>
-        {(catalog?.mcp_prefixes ?? []).length === 0 ? (
+        {(catalog ?? []).filter((e) => e.prefix).length === 0 ? (
           <p className="pl-6 text-xs text-neutral-400">
             No MCP servers enabled.
           </p>
         ) : (
           <ul className="grid grid-cols-2 gap-x-3 gap-y-1 pl-6">
-            {(catalog?.mcp_prefixes ?? []).map((entry) => (
-              <CheckItem
-                key={entry.prefix}
-                name={entry.server_name}
-                hint={`${entry.prefix}*`}
-                checked={draft.prefixes.has(entry.prefix)}
-                disabled={readOnly}
-                onToggle={() => toggle('prefixes')(entry.prefix)}
-              />
-            ))}
+            {(catalog ?? [])
+              .filter((e) => e.prefix)
+              .map((entry) => {
+                /* `entry.name` is `server_*`; the stored prefix is `server_`. */
+                const prefix = entry.name.replace(/\*$/, '')
+                return (
+                  <CheckItem
+                    key={entry.name}
+                    name={entry.name.replace(/_\*$/, '')}
+                    hint={entry.name}
+                    checked={draft.prefixes.has(prefix)}
+                    disabled={readOnly}
+                    onToggle={() => toggle('prefixes')(prefix)}
+                  />
+                )
+              })}
           </ul>
         )}
       </div>

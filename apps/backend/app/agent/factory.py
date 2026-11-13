@@ -26,12 +26,14 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic_ai import Agent, DeferredToolRequests, UsageLimits
-from pydantic_ai.capabilities import LocalWorkspace
+from pydantic_ai import Agent, DeferredToolRequests, RunContext, UsageLimits
+from pydantic_ai.capabilities import AbstractCapability, LocalWorkspace
+from pydantic_ai.tools import ToolDefinition
+from pydantic_ai.toolsets import AbstractToolset, FilteredToolset
 from pydantic_ai.workspaces import LocalWorkspaceBackend
 from pydantic_ai_harness import ApprovalReviewer, Coder, Permissions, Planning
 from pydantic_ai_harness.coder import FILE_TOOL_NAMES
@@ -47,9 +49,15 @@ from app.agent.models import (
     thinking_model_settings,
 )
 from app.config import DEFAULT_MODEL, DEFAULT_PERMISSION_PROFILE, data_dir
+from app.profiles import (
+    BUILTIN_PROFILES,
+    ToolProfile,
+    resolve_tool_profile,
+    system_skills,
+    workspace_skills,
+)
 
 if TYPE_CHECKING:
-    from pydantic_ai.capabilities import AbstractCapability
     from pydantic_ai.models import Model
 
     from app.db.app_tables import Workspace
@@ -170,6 +178,66 @@ def _manual_capabilities(lists: PermissionLists) -> list[AbstractCapability]:
     return [_coder_with_lists(lists), Permissions("read-only")]
 
 
+# approval_mode -> Permissions mode; 'smart' additionally adds an
+# ApprovalReviewer when a judge model resolves.
+_APPROVAL_MODES = {"bypass": "full", "smart": "auto", "manual": "read-only"}
+
+
+def _profile_capabilities(
+    profile: ToolProfile,
+    lists: PermissionLists,
+    *,
+    judge_model: str | Model | None = None,
+    fallback_model: Model | None = None,
+) -> list[AbstractCapability]:
+    """The Coder/permissions capabilities one resolved ``ToolProfile`` needs.
+
+    The builtin ``read-only`` keeps the legacy assembly — a standalone
+    ``FileSystem(read_only=True)`` plus ``RepoContext``, no ``Coder`` (no
+    coder instructions, no shell) — rather than Coder-plus-allowlist. Every
+    other profile builds ``Coder`` and ``Permissions`` from ``approval_mode``;
+    ``smart`` adds the reviewer, degrading to ``manual`` when no judge model
+    resolves.
+    """
+    if profile.builtin and profile.id == "read-only":
+        return [
+            FileSystem(
+                read_only=True,
+                tools=FILE_TOOL_NAMES,
+                allowed_patterns=list(lists.allowed_patterns),
+                denied_patterns=list(lists.denied_patterns),
+                content_hashes=False,
+            ),
+            RepoContext(walk_up="repo_root"),
+            Permissions("read-only"),
+        ]
+
+    if profile.approval_mode == "smart":
+        reviewer = _approval_reviewer(judge_model, fallback_model)
+        if reviewer is not None:
+            return [_coder_with_lists(lists), Permissions("auto"), reviewer]
+        logger.warning(
+            "Smart approval mode has no usable judge model; falling back to manual"
+        )
+        return _manual_capabilities(lists)
+
+    return [_coder_with_lists(lists), Permissions(_APPROVAL_MODES[profile.approval_mode])]
+
+
+def _skills_capabilities(profile: ToolProfile) -> list[AbstractCapability]:
+    """The ``Skills`` capabilities for the profile's skill allowlist.
+
+    ``skills=[]`` omits the capability entirely; ``None`` includes every
+    discovered skill; a name list becomes ``include=``. Workspace-local
+    libraries come first so a project skill shadows a system one of the same
+    name (``keep_first`` claims the earlier source).
+    """
+    if profile.skills == []:
+        return []
+    include = frozenset(profile.skills) if profile.skills is not None else None
+    return [workspace_skills(include), system_skills(include)]
+
+
 def resolve_permission_capabilities(
     profile: str = DEFAULT_PERMISSION_PROFILE,
     lists: PermissionLists | None = None,
@@ -177,7 +245,7 @@ def resolve_permission_capabilities(
     judge_model: str | Model | None = None,
     fallback_model: Model | None = None,
 ) -> list[AbstractCapability]:
-    """The capabilities a run needs for one permission profile.
+    """The capabilities a run needs for one permission profile id.
 
     Args:
         profile: ``bypass`` (nothing asks), ``smart`` (an LLM reviewer
@@ -198,33 +266,46 @@ def resolve_permission_capabilities(
         The capability list to merge into ``build_run_kwargs``'s.
     """
     lists = lists or PermissionLists()
+    builtin = next((p for p in BUILTIN_PROFILES if p.id == profile), None)
+    if builtin is None:
+        if profile != "manual":
+            logger.warning("Unknown permission profile %r; using 'manual'", profile)
+        builtin = next(p for p in BUILTIN_PROFILES if p.id == "manual")
+    return _profile_capabilities(
+        builtin, lists, judge_model=judge_model, fallback_model=fallback_model
+    )
 
-    if profile == "bypass":
-        return [_coder_with_lists(lists), Permissions("full")]
 
-    if profile == "smart":
-        reviewer = _approval_reviewer(judge_model, fallback_model)
-        if reviewer is not None:
-            return [_coder_with_lists(lists), Permissions("auto"), reviewer]
-        logger.warning("Smart profile has no usable judge model; falling back to manual")
-        return _manual_capabilities(lists)
+@dataclass
+class ToolAllowlist(AbstractCapability[None]):
+    """Restricts the assembled toolset to the profile's allowed tools.
 
-    if profile == "read-only":
-        return [
-            FileSystem(
-                read_only=True,
-                tools=FILE_TOOL_NAMES,
-                allowed_patterns=list(lists.allowed_patterns),
-                denied_patterns=list(lists.denied_patterns),
-                content_hashes=False,
-            ),
-            RepoContext(walk_up="repo_root"),
-            Permissions("read-only"),
-        ]
+    ``get_wrapper_toolset`` wraps the combined non-output toolset once per
+    run — a single wrap point that covers Coder, Planning, and MCP toolsets
+    uniformly. ``load_capability`` is always permitted: filtered out, the
+    deferred-capability loader would break skill loading entirely.
+    """
 
-    if profile != "manual":
-        logger.warning("Unknown permission profile %r; using 'manual'", profile)
-    return _manual_capabilities(lists)
+    allowed: frozenset[str] = field(default_factory=frozenset)
+    """Exact tool names to keep (``frozenset()`` keeps nothing but the exemptions)."""
+
+    prefixes: frozenset[str] = field(default_factory=frozenset)
+    """Name prefixes to keep — e.g. ``fs-tools_`` admits a whole MCP server."""
+
+    def get_wrapper_toolset(
+        self, toolset: AbstractToolset[None]
+    ) -> AbstractToolset[None]:
+        """Wrap the assembled toolset in a ``FilteredToolset`` honoring the allowlist."""
+        allowed, prefixes = self.allowed, self.prefixes
+
+        def keep(ctx: RunContext[Any], tool_def: ToolDefinition) -> bool:
+            return (
+                tool_def.name == "load_capability"
+                or tool_def.name in allowed
+                or any(tool_def.name.startswith(prefix) for prefix in prefixes)
+            )
+
+        return FilteredToolset(toolset, keep)
 
 
 def _approval_reviewer(
@@ -308,7 +389,10 @@ def build_run_kwargs(
         ProviderNotConfigured: If the model's provider has no credentials.
     """
     root = Path(getattr(workspace, "path", workspace))
-    profile = _setting(chat_settings, "permission_profile") or DEFAULT_PERMISSION_PROFILE
+    # The effective permission_profile id resolves to a ToolProfile — builtin
+    # or one of the custom profiles in settings['tool_profiles'] (decoded by
+    # _run_settings). An unknown id warns and resolves to builtin 'manual'.
+    profile = resolve_tool_profile(chat_settings)
     lists = PermissionLists(
         allowed_commands=tuple(_setting(chat_settings, "allowed_commands") or ()),
         denied_commands=tuple(_setting(chat_settings, "denied_commands") or ()),
@@ -328,30 +412,51 @@ def build_run_kwargs(
     model = resolve_model(model_spec)
     judge_model = _setting(chat_settings, "judge_model")
 
-    read_only = profile == "read-only"
     # Lazy: app.mcp_servers -> app.api.schemas -> this module would be a cycle.
     # The MCP layer itself imports fastmcp lazily too, so a build with no
     # servers configured pays nothing.
     from app.mcp_servers import build_mcp_capabilities, parse_mcp_servers
 
     capabilities: list[AbstractCapability] = [
-        LocalWorkspace(root, read_only=read_only),
-        *resolve_permission_capabilities(
+        LocalWorkspace(root, read_only=profile.workspace_read_only),
+        *_profile_capabilities(
             profile, lists, judge_model=judge_model, fallback_model=model
         ),
         # MCP toolsets land in the capability list like everything else.
         # `Permissions` never sees MCP tools (it gates only file-write kinds
-        # and shell-command tools), so every non-bypass profile wraps them in
-        # `ApprovalRequiredToolset` — their calls join the same deferred
-        # approval flow (`smart`'s ApprovalReviewer judges them too).
+        # and shell-command tools), so every non-bypass approval mode wraps
+        # them in `ApprovalRequiredToolset` — their calls join the same
+        # deferred approval flow (`smart`'s ApprovalReviewer judges them too).
         *build_mcp_capabilities(
             parse_mcp_servers(_setting(chat_settings, "mcp_servers")),
-            gate=profile != "bypass",
+            gate=profile.approval_mode != "bypass",
         ),
         _planning_capability(_setting(chat_settings, "chat_id")),
+        # skills=None -> all discovered; [] -> none; names -> include=frozenset.
+        *_skills_capabilities(profile),
+        # A profile tool allowlist (exact names and/or {server}_ prefixes)
+        # wraps the whole assembled toolset — one wrap point covers Coder,
+        # Planning, and MCP uniformly; `load_capability` is always kept.
+        *(
+            [
+                ToolAllowlist(
+                    allowed=frozenset(profile.tools or ()),
+                    # Tolerate the catalog's glob form ('github_*') as well
+                    # as the canonical prefix ('github_'); a bare '*' strips
+                    # to '' and is dropped rather than admitting everything.
+                    prefixes=frozenset(
+                        p
+                        for raw in profile.tool_prefixes
+                        if (p := raw.removesuffix("*"))
+                    ),
+                )
+            ]
+            if profile.tools is not None or profile.tool_prefixes
+            else []
+        ),
         # Emits the `data-run-meta` chunk so the UI can badge the effective
         # (post-workspace-override) profile from the stream's first events.
-        run_meta_hooks(profile, model_spec),
+        run_meta_hooks(profile.id, model_spec),
     ]
 
     return {

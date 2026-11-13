@@ -557,9 +557,14 @@ def test_chat_patch_permission_profile(client):
     assert patched.status_code == 200
     assert patched.json()["permission_profile"] == "read-only"
 
-    # Unknown profiles are schema-rejected; explicit null clears the override.
+    # Profile ids are free-form (custom profiles make any string legal;
+    # unknown ids resolve to 'manual' at run time). Explicit null clears.
+    patched = _patch_chat(test_client, chat["id"], {"permission_profile": "everything"})
+    assert patched.status_code == 200
+    assert patched.json()["permission_profile"] == "everything"
+    # A non-string value is still a schema error.
     assert (
-        _patch_chat(test_client, chat["id"], {"permission_profile": "everything"}).status_code
+        _patch_chat(test_client, chat["id"], {"permission_profile": 5}).status_code
         == 422
     )
     cleared = _patch_chat(test_client, chat["id"], {"permission_profile": None})
