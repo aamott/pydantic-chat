@@ -179,7 +179,8 @@ class AppVercelAIAdapter(VercelAIAdapter):
             # teardown must not abort the save that teardown exists to enable.
             with suppress(BaseException):
                 await aclose()
-        if not captured:
+        messages = _drop_trailing_empty_response(captured)
+        if not messages:
             return
         store = self.conversation_store
         assert store is not None  # caller guarantees it
@@ -189,10 +190,10 @@ class AppVercelAIAdapter(VercelAIAdapter):
             )
             if loaded is None:
                 conversation = Conversation(
-                    messages=list(captured), conversation_id=conversation_id
+                    messages=messages, conversation_id=conversation_id
                 )
             else:
-                loaded.messages = list(captured)
+                loaded.messages = messages
                 conversation = loaded
             await store.save(conversation, scope=self.conversation_scope)
         except ConversationConflict:
@@ -573,18 +574,18 @@ async def _persist_partial(
     the save CAS-checked; ``save`` compares by content and appends only the
     tail, so a no-progress cancel stores nothing.
     """
-    messages = cancelled_run.all_messages()
+    messages = _drop_trailing_empty_response(cancelled_run.all_messages())
     if not messages:
         return
     loaded = await store.load(chat.id, scope=chat.workspace_id)
     if loaded is None:
         conversation = Conversation(
-            messages=list(messages),
+            messages=messages,
             usage=cancelled_run.usage,
             conversation_id=chat.id,
         )
     else:
-        loaded.messages = list(messages)
+        loaded.messages = messages
         loaded.usage = loaded.usage + cancelled_run.usage
         conversation = loaded
     try:
@@ -593,6 +594,26 @@ async def _persist_partial(
         logger.warning("Partial state for chat %s not saved: store conflict", chat.id)
     except Exception:
         logger.exception("Partial state for chat %s not saved", chat.id)
+
+
+def _drop_trailing_empty_response(
+    messages: list[ModelMessage],
+) -> list[ModelMessage]:
+    """The history minus a trailing ``ModelResponse`` the model never wrote to.
+
+    A run stopped mid-model-request — cancelled, failed, or disconnected
+    before the first part — still commits the half-open step as an in-flight
+    ``ModelResponse(parts=[])`` (``state='interrupted'``, or ``'suspended'``
+    on a walk-away disconnect). Persisted, it projects an empty assistant
+    ``UIMessage`` and gives a resubmitted turn a tail to merge against. Only
+    the tail is stripped: an empty response anywhere earlier in history is
+    left alone. Returns a copy — ``all_messages()`` hands back the run's own
+    list, which the cancelled-run object still holds.
+    """
+    messages = list(messages)
+    while messages and isinstance(messages[-1], ModelResponse) and not messages[-1].parts:
+        messages.pop()
+    return messages
 
 
 async def _maybe_set_title(

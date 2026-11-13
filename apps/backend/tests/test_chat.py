@@ -559,3 +559,155 @@ async def test_disconnect_mid_stream_persists_partial(client, monkeypatch):
         for entry in entries
         for part in entry.message.parts
     )
+
+
+async def test_stop_before_first_token_saves_no_empty_response(client, monkeypatch):
+    """Cancelling mid-model-request persists the prompt, not a ghost response.
+
+    The graph records the half-open model-request step as an in-flight
+    ``ModelResponse(parts=[], state='interrupted')`` — persisted, it projects
+    an empty assistant UIMessage and confuses resubmit merges. The save path
+    drops a *trailing* empty response before storing.
+    """
+    test_client, tmp_path = client
+    workspace = _create_workspace(test_client, tmp_path)
+    chat = _create_chat(test_client, workspace["id"])
+
+    import asyncio
+
+    reached = threading.Event()
+
+    async def hang_stream(messages, info):
+        reached.set()  # the model request is in flight, before any output
+        await asyncio.Event().wait()  # hangs until the run is cancelled
+        yield "unreachable"  # pragma: no cover
+
+    monkeypatch.setattr(
+        "app.agent.factory.resolve_model",
+        lambda spec: FunctionModel(stream_function=hang_stream),
+    )
+
+    result: dict = {}
+
+    def do_stream() -> None:
+        result["response"] = test_client.post(
+            "/api/chat", json=_chat_payload(chat["id"]), headers=AUTH
+        )
+
+    thread = threading.Thread(target=do_stream)
+    thread.start()
+    try:
+        tokens = test_client.app.state.cancellation_tokens
+        deadline = time.monotonic() + 10
+        while chat["id"] not in tokens:
+            assert time.monotonic() < deadline, "run never registered a token"
+            await asyncio.sleep(0.01)
+        assert reached.wait(timeout=10), "model request never started"
+        response = test_client.post(
+            f"/api/chats/{chat['id']}/stop", headers=AUTH
+        )
+        assert response.status_code == 200
+    finally:
+        thread.join(timeout=15)
+    assert not thread.is_alive(), "stream did not finish after /stop"
+    assert result["response"].status_code == 200
+
+    # The persisted chain is just the user request — no trailing ghost.
+    store = test_client.app.state.store
+    record = await store.read_record(chat["id"])
+    assert record is not None, "cancelled run saved nothing — not even the prompt"
+    entries = await store.read_history(record.head_id)
+    assert entries, "expected at least the user prompt"
+    assert not any(
+        type(entry.message).__name__ == "ModelResponse" and not entry.message.parts
+        for entry in entries
+    ), "stored an empty ModelResponse — a ghost turn with no model output"
+    last = entries[-1].message
+    assert any(
+        getattr(part, "part_kind", None) == "user-prompt"
+        and part.content == "hello agent"
+        for part in last.parts
+    )
+
+    # The transcript shows no empty assistant message either.
+    messages = test_client.get(
+        f"/api/chats/{chat['id']}/messages", headers=AUTH
+    ).json()
+    assert [m["role"] for m in messages] == ["user"]
+
+
+async def test_failed_run_before_first_token_saves_no_empty_response(
+    client, monkeypatch
+):
+    """A model dying mid-request before any part saves no ghost response.
+
+    Same ``ModelResponse(parts=[])`` shape as the cancel path, reached through
+    ``AppVercelAIAdapter._save_captured`` instead of ``_persist_partial``.
+    """
+    test_client, tmp_path = client
+    workspace = _create_workspace(test_client, tmp_path)
+    chat = _create_chat(test_client, workspace["id"])
+
+    async def fail_stream(messages, info):
+        raise RuntimeError("provider blew up before first token")
+        yield  # pragma: no cover — keeps this an async generator
+
+    monkeypatch.setattr(
+        "app.agent.factory.resolve_model",
+        lambda spec: FunctionModel(stream_function=fail_stream),
+    )
+    response = test_client.post(
+        "/api/chat", json=_chat_payload(chat["id"]), headers=AUTH
+    )
+    assert response.status_code == 200
+    types = {event["type"] for event in _sse_events(response.text)}
+    assert "error" in types
+
+    store = test_client.app.state.store
+    record = await store.read_record(chat["id"])
+    assert record is not None, "failed run saved nothing — not even the prompt"
+    entries = await store.read_history(record.head_id)
+    assert entries, "expected at least the user prompt"
+    assert not any(
+        type(entry.message).__name__ == "ModelResponse" and not entry.message.parts
+        for entry in entries
+    ), "stored an empty ModelResponse — a ghost turn with no model output"
+    last = entries[-1].message
+    assert any(
+        getattr(part, "part_kind", None) == "user-prompt"
+        and part.content == "hello agent"
+        for part in last.parts
+    )
+
+    messages = test_client.get(
+        f"/api/chats/{chat['id']}/messages", headers=AUTH
+    ).json()
+    assert [m["role"] for m in messages] == ["user"]
+
+
+def test_drop_trailing_empty_response_only_strips_the_tail():
+    """The shared helper removes a trailing empty response, nothing else."""
+    from pydantic_ai.messages import (
+        ModelRequest,
+        ModelResponse,
+        TextPart,
+        UserPromptPart,
+    )
+
+    from app.api.chat import _drop_trailing_empty_response
+
+    request = ModelRequest(parts=[UserPromptPart(content="hi")])
+    empty = ModelResponse(parts=[])
+    full = ModelResponse(parts=[TextPart(content="ok")])
+
+    assert _drop_trailing_empty_response([request, full, empty]) == [request, full]
+    # An empty response mid-history is not the ghost this targets — kept.
+    assert _drop_trailing_empty_response([request, empty, full]) == [
+        request,
+        empty,
+        full,
+    ]
+    # A non-empty interrupted-style tail is real content — kept.
+    assert _drop_trailing_empty_response([request, full]) == [request, full]
+    assert _drop_trailing_empty_response([request]) == [request]
+    assert _drop_trailing_empty_response([]) == []

@@ -12,6 +12,13 @@
  * (a completed UI message stream). 404s on reconnect — unknown chat or
  * nothing persisted yet — are treated as "nothing to resume" instead of
  * surfacing a spurious error on every chat mount.
+ *
+ * Server-managed history: `prepareSendMessagesRequest` POSTs only the new
+ * turn (`newTurnMessages`) rather than the full transcript. Sending
+ * everything let a transcript with no assistant reply (run cancelled
+ * before the response arrived) resubmit-cut stored history at the first
+ * user prompt and merge every earlier prompt into one stored request —
+ * quadratic history growth.
  */
 import { Chat } from '@ai-sdk/react'
 import {
@@ -21,6 +28,7 @@ import {
   type ChatTransport,
   type UIMessage,
 } from 'ai'
+import { newTurnMessages } from './messages'
 
 /** Concrete `Chat` + message type used app-wide (untyped `UIMessage`). */
 export type AppChat = Chat<UIMessage>
@@ -55,6 +63,18 @@ export function makeTransport(): BackendChatTransport {
   return new BackendChatTransport({
     api: `${window.api.backendUrl}/api/chat`,
     headers: { Authorization: `Bearer ${window.api.token}` },
+    // Same body shape as the default (`http-chat-transport.ts`), with
+    // `messages` narrowed to the new turn. `api`/`headers`/`credentials`
+    // are omitted so the resolved transport values still apply.
+    prepareSendMessagesRequest: ({ id, messages, body, trigger, messageId }) => ({
+      body: {
+        ...body,
+        id,
+        messages: newTurnMessages(messages),
+        trigger,
+        messageId,
+      },
+    }),
   })
 }
 

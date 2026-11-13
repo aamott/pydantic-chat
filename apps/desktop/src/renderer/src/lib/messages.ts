@@ -57,3 +57,34 @@ export function lastAssistantMessage(
   const last = messages[messages.length - 1]
   return last?.role === 'assistant' ? last : undefined
 }
+
+/**
+ * The new turn to POST under `manage_message_history='server'`: the
+ * client's messages after its last `assistant` message.
+ *
+ * The backend's `_take_new_turn` derives the same slice server-side, so
+ * sending only this tail is equivalent for a well-formed transcript — and
+ * strictly safer for a degenerate one: when a cancelled run left the
+ * client holding several user prompts and no assistant reply, sending the
+ * full transcript made the first stored prompt's `ui_message_id` match,
+ * resubmit-cutting history and merging every earlier prompt into one
+ * stored request (quadratic growth).
+ *
+ * When the slice is empty — the transcript ends on an assistant message,
+ * as approval (`addToolApprovalResponse`) and tool-output (`addToolOutput`)
+ * auto-resubmits do — the last message is returned alone so the request
+ * still carries the message the body's `messageId` refers to.
+ */
+export function newTurnMessages(messages: UIMessage[]): UIMessage[] {
+  let lastAssistant = -1
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i].role === 'assistant') {
+      lastAssistant = i
+      break
+    }
+  }
+  const newTurn = messages.slice(lastAssistant + 1)
+  if (newTurn.length > 0) return newTurn
+  const last = messages[messages.length - 1]
+  return last ? [last] : []
+}
