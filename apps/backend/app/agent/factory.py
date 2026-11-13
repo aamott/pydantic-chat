@@ -30,7 +30,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic_ai import Agent, UsageLimits
+from pydantic_ai import Agent, DeferredToolRequests, UsageLimits
 from pydantic_ai.capabilities import LocalWorkspace
 from pydantic_ai.workspaces import LocalWorkspaceBackend
 from pydantic_ai_harness import ApprovalReviewer, Coder, Permissions, Planning
@@ -223,17 +223,27 @@ def _approval_reviewer(judge_model: str | Model | None) -> ApprovalReviewer | No
     return ApprovalReviewer(model, question=APPROVAL_RISK_QUESTION)
 
 
-_AGENT: Agent[None, str] = Agent(
+_AGENT: Agent[None, str | DeferredToolRequests] = Agent(
     None,
     instructions="You are a helpful coding assistant working inside the user's workspace.",
+    output_type=[str, DeferredToolRequests],
 )
-"""One shared ``Agent``; model and capabilities arrive per run."""
+"""One shared ``Agent``; model and capabilities arrive per run.
+
+``DeferredToolRequests`` in ``output_type`` lets a run *end* on calls deferred
+by the permission capabilities (``Permissions`` holds approval-required calls):
+without it the run dies with ``UserError`` instead of emitting
+``tool-approval-request`` chunks and storing what it's waiting on. The adapter
+only adds it automatically for client-supplied toolsets, which this app never
+sends, so it is declared here — never per run (``dispatch_request`` only
+permits ``output_type`` when the agent has none).
+"""
 
 install_ui_event_bridge(_AGENT)
 """Bridge capability events (plan changes, shell progress) into `data-*` chunks."""
 
 
-def get_agent() -> Agent[None, str]:
+def get_agent() -> Agent[None, str | DeferredToolRequests]:
     """The shared agent — minimal instructions; ``Coder`` brings its own per run."""
     return _AGENT
 

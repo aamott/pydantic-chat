@@ -685,6 +685,148 @@ async def test_failed_run_before_first_token_saves_no_empty_response(
     assert [m["role"] for m in messages] == ["user"]
 
 
+# ---------------------------------------------------------------------------
+# Deferred tool approvals (human-in-the-loop)
+# ---------------------------------------------------------------------------
+
+
+def _approval_shell_model(command: str = "echo approved-cmd") -> FunctionModel:
+    """A model whose only response calls ``shell`` — held for approval under ``manual``."""
+    from pydantic_ai.models.function import DeltaToolCall
+
+    async def stream_fn(messages, info):
+        yield {
+            0: DeltaToolCall(
+                name="shell", json_args=json.dumps({"command": command})
+            )
+        }
+
+    return FunctionModel(stream_function=stream_fn)
+
+
+async def test_deferred_tool_call_streams_approval_request(client, monkeypatch):
+    """An approval-required call ends the stream with `tool-approval-request`, not an error.
+
+    The default ``manual`` profile's ``Permissions("read-only")`` holds the
+    ``shell`` call, so the run pauses with ``DeferredToolRequests`` output:
+    the event stream renders one ``tool-approval-request`` chunk per pending
+    call, and the store records ``deferred_tool_requests`` for the client's
+    approval resubmit to answer.
+    """
+    test_client, tmp_path = client
+    workspace = _create_workspace(test_client, tmp_path)
+    chat = _create_chat(test_client, workspace["id"])  # default profile: manual
+
+    monkeypatch.setattr(
+        "app.agent.factory.resolve_model", lambda spec: _approval_shell_model()
+    )
+    response = test_client.post(
+        "/api/chat", json=_chat_payload(chat["id"]), headers=AUTH
+    )
+    assert response.status_code == 200
+
+    events = _sse_events(response.text)
+    types = {event["type"] for event in events}
+    assert "error" not in types
+    assert "finish" in types
+
+    approvals = [e for e in events if e["type"] == "tool-approval-request"]
+    assert len(approvals) == 1
+    tool_call_id = approvals[0]["toolCallId"]
+    # The approval id is the tool call id on this backend.
+    assert approvals[0]["approvalId"] == tool_call_id
+
+    # The conversation record says what it's waiting on: this call, as an approval.
+    store = test_client.app.state.store
+    record = await store.read_record(chat["id"])
+    assert record is not None, "deferred run saved nothing"
+    requests = record.deferred_tool_requests
+    assert requests is not None, (
+        "record lacks deferred_tool_requests — a resubmit can't answer it"
+    )
+    assert [call.tool_call_id for call in requests.approvals] == [tool_call_id]
+    assert requests.approvals[0].tool_name == "shell"
+
+
+async def test_approval_resubmit_executes_deferred_call(client, monkeypatch):
+    """Approving the held call resubmits the transcript; the run executes it.
+
+    This is ``useChat``'s ``addToolApprovalResponse`` + auto-resubmit: the
+    client echoes the transcript with the tool part flipped to
+    ``approval-responded``, the adapter extracts ``deferred_tool_results``, and
+    the run resolves the approval — the ``shell`` call executes, the model
+    finishes, and the record stops waiting on anything.
+    """
+    test_client, tmp_path = client
+    workspace = _create_workspace(test_client, tmp_path)
+    chat = _create_chat(test_client, workspace["id"])
+
+    monkeypatch.setattr(
+        "app.agent.factory.resolve_model", lambda spec: _approval_shell_model()
+    )
+    first = test_client.post(
+        "/api/chat", json=_chat_payload(chat["id"]), headers=AUTH
+    )
+    assert first.status_code == 200
+    approvals = [
+        e for e in _sse_events(first.text) if e["type"] == "tool-approval-request"
+    ]
+    assert len(approvals) == 1, "run did not pause for approval"
+    tool_call_id = approvals[0]["toolCallId"]
+
+    # The resubmitted transcript: same user message, the assistant message with
+    # the answered approval, nothing else new.
+    resubmit = {
+        "id": chat["id"],
+        "trigger": "submit-message",
+        "messages": [
+            {
+                "id": "m1",
+                "role": "user",
+                "parts": [{"type": "text", "text": "hello agent"}],
+            },
+            {
+                "id": "m2",
+                "role": "assistant",
+                "parts": [
+                    {
+                        "type": "tool-shell",
+                        "toolCallId": tool_call_id,
+                        "state": "approval-responded",
+                        "input": {"command": "echo approved-cmd"},
+                        "approval": {"id": tool_call_id, "approved": True},
+                    }
+                ],
+            },
+        ],
+    }
+    monkeypatch.setattr(
+        "app.agent.factory.resolve_model",
+        lambda spec: TestModel(call_tools=[], custom_output_text="approved, all done"),
+    )
+    second = test_client.post("/api/chat", json=resubmit, headers=AUTH)
+    assert second.status_code == 200
+
+    events = _sse_events(second.text)
+    types = {event["type"] for event in events}
+    assert "error" not in types
+    assert "finish" in types
+
+    # The approved shell call actually ran: its output streamed back.
+    outputs = [e for e in events if e["type"] == "tool-output-available"]
+    assert outputs and outputs[0]["toolCallId"] == tool_call_id
+    text = "".join(
+        event.get("delta", "") for event in events if event["type"] == "text-delta"
+    )
+    assert "approved, all done" in text
+
+    # Nothing left pending on the record.
+    store = test_client.app.state.store
+    record = await store.read_record(chat["id"])
+    assert record is not None
+    assert record.deferred_tool_requests is None
+
+
 def test_drop_trailing_empty_response_only_strips_the_tail():
     """The shared helper removes a trailing empty response, nothing else."""
     from pydantic_ai.messages import (

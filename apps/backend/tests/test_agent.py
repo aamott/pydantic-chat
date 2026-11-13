@@ -20,6 +20,7 @@ from pydantic_ai_harness.shell import Shell
 from app.agent.factory import (
     PermissionLists,
     build_run_kwargs,
+    get_agent,
     resolve_permission_capabilities,
 )
 from app.agent.models import (
@@ -173,6 +174,19 @@ def test_secrets_file_mode_600_and_roundtrip():
 # ---------------------------------------------------------------------------
 # Capability wiring
 # ---------------------------------------------------------------------------
+
+
+def test_agent_output_type_includes_deferred_requests():
+    """``_AGENT`` can pause a run on approval-required calls instead of erroring.
+
+    The adapter auto-adds ``DeferredToolRequests`` to the run output type only
+    for client-supplied toolsets; calls deferred by run *capabilities* (the
+    ``manual`` profile's ``Permissions``) need it declared on the agent itself,
+    or the run dies with ``UserError`` when it pauses.
+    """
+    from pydantic_ai import DeferredToolRequests
+
+    assert DeferredToolRequests in get_agent().output_type
 
 
 def _chat_settings(**overrides):
