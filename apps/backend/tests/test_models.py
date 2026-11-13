@@ -98,13 +98,15 @@ def test_models_catalog_shape_and_filtering(client, monkeypatch):
     catalog = test_client.get("/api/models", headers=AUTH).json()
     providers = {entry["provider"]: entry for entry in catalog["providers"]}
     assert "anthropic" in providers
-    assert "openai" not in providers and "google" not in providers
+    assert "openai" not in providers
+    assert "google" not in providers
     anthropic = providers["anthropic"]
     assert anthropic["label"] == "Anthropic"
     assert anthropic["models"], "static catalog returned no models"
     for model in anthropic["models"]:
         assert model["id"].startswith("anthropic:")
-        assert isinstance(model["name"], str) and model["name"]
+        assert isinstance(model["name"], str)
+        assert model["name"]
         assert isinstance(model["thinking_levels"], list)
         assert set(model["thinking_levels"]) <= {"off", "low", "medium", "high"}
         assert model["max_context"] is None or isinstance(model["max_context"], int)
