@@ -12,8 +12,10 @@ from fastapi.testclient import TestClient
 
 from app.agent.factory import build_run_kwargs
 from app.agent.models import (
+    MODEL_CATALOG,
     UnknownProviderError,
     catalog_thinking_levels,
+    google_model_catalog,
     ollama_model_catalog,
     split_model_spec,
 )
@@ -207,6 +209,262 @@ async def test_ollama_model_catalog_live_and_offline(tmp_path, monkeypatch):
 
     monkeypatch.setattr("app.agent.models.httpx.AsyncClient", BrokenClient)
     assert await ollama_model_catalog() == []
+
+
+# ---------------------------------------------------------------------------
+# Google dynamic catalog
+# ---------------------------------------------------------------------------
+
+_STATIC_GOOGLE_IDS = [m["id"] for m in MODEL_CATALOG["google"]["models"]]
+
+
+class _FakeGoogleClient:
+    """Monkeypatched httpx.AsyncClient serving a canned v1beta/models payload."""
+
+    payload: object = {"models": []}
+    error: Exception | None = None
+
+    def __init__(self, **kwargs):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return None
+
+    async def get(self, url, params=None):
+        if self.error is not None:
+            raise self.error
+        assert url == "https://generativelanguage.googleapis.com/v1beta/models"
+        assert params == {"key": "test-google-key"}
+
+        class FakeResponse:
+            def __init__(self, payload):
+                self._payload = payload
+
+            def raise_for_status(self):
+                if isinstance(self._payload, Exception):
+                    raise self._payload
+
+            def json(self):
+                return self._payload
+
+        return FakeResponse(type(self).payload)
+
+
+def _google_client(monkeypatch, payload, error=None):
+    """Install _FakeGoogleClient with the given payload/transport error."""
+    _FakeGoogleClient.payload = payload
+    _FakeGoogleClient.error = error
+    monkeypatch.setattr("app.agent.models.httpx.AsyncClient", _FakeGoogleClient)
+
+
+def _gemini_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("GOOGLE_API_KEY", "test-google-key")
+
+
+async def test_google_model_catalog_filters_and_maps(tmp_path, monkeypatch):
+    """v1beta/models rows become google:<id> entries; non-generative junk drops."""
+    _gemini_env(tmp_path, monkeypatch)
+    _google_client(
+        monkeypatch,
+        {
+            "models": [
+                {
+                    "name": "models/gemini-2.5-flash",
+                    "displayName": "Gemini 2.5 Flash",
+                    "inputTokenLimit": 1_048_576,
+                    "supportedGenerationMethods": ["generateContent", "countTokens"],
+                },
+                {
+                    # No displayName -> falls back to the model id part.
+                    "name": "models/gemini-2.5-flash-lite",
+                    "inputTokenLimit": 65_536,
+                    "supportedGenerationMethods": ["generateContent"],
+                },
+                {
+                    # No inputTokenLimit -> max_context None.
+                    "name": "models/gemini-2.0-flash",
+                    "displayName": "Gemini 2.0 Flash",
+                    "supportedGenerationMethods": ["generateContent"],
+                },
+                {
+                    # Embedding model: right family prefix is absent -> dropped.
+                    "name": "models/embedding-001",
+                    "displayName": "Embedding 001",
+                    "supportedGenerationMethods": ["embedContent"],
+                },
+                {
+                    # gemini- prefix but cannot generateContent -> dropped.
+                    "name": "models/gemini-1.0-vision",
+                    "displayName": "Gemini 1.0 Vision",
+                    "supportedGenerationMethods": ["countTokens"],
+                },
+                {
+                    # AQA/tuned-style entry under a non-gemini name -> dropped.
+                    "name": "models/aqa",
+                    "displayName": "AQA",
+                    "supportedGenerationMethods": ["generateAnswer"],
+                },
+            ]
+        },
+    )
+    models = await google_model_catalog()
+    dynamic = models[:3]
+    assert [m["id"] for m in dynamic] == [
+        "google:gemini-2.5-flash",
+        "google:gemini-2.5-flash-lite",
+        "google:gemini-2.0-flash",
+    ]
+    assert dynamic[0]["name"] == "Gemini 2.5 Flash"
+    assert dynamic[0]["max_context"] == 1_048_576
+    assert dynamic[1]["name"] == "gemini-2.5-flash-lite"
+    assert dynamic[1]["max_context"] == 65_536
+    assert dynamic[2]["max_context"] is None
+    # Static flagships the API didn't return are appended, dedup'd by id.
+    assert [m["id"] for m in models[3:]] == _STATIC_GOOGLE_IDS
+    assert len({m["id"] for m in models}) == len(models)
+
+
+async def test_google_model_catalog_static_merge_and_dedup(tmp_path, monkeypatch):
+    """A static entry the API also returns keeps its hand-curated thinking levels."""
+    _gemini_env(tmp_path, monkeypatch)
+    _google_client(
+        monkeypatch,
+        {
+            "models": [
+                {
+                    # Matches a static catalog id: static thinking_levels win
+                    # (_NO_OFF for the Pro preview), displayName still used.
+                    "name": "models/gemini-3.1-pro-preview",
+                    "displayName": "Gemini 3.1 Pro Preview (API name)",
+                    "inputTokenLimit": 999_999,
+                    "supportedGenerationMethods": ["generateContent"],
+                },
+            ]
+        },
+    )
+    models = await google_model_catalog()
+    by_id = {m["id"]: m for m in models}
+    merged = by_id["google:gemini-3.1-pro-preview"]
+    assert merged["name"] == "Gemini 3.1 Pro Preview (API name)"
+    assert merged["thinking_levels"] == ["low", "medium", "high"]
+    assert merged["max_context"] == 999_999  # live inputTokenLimit wins
+    # Each static id appears exactly once, API-returned ones in dynamic position.
+    assert models[0]["id"] == "google:gemini-3.1-pro-preview"
+    assert sorted(m["id"] for m in models[1:]) == sorted(
+        i for i in _STATIC_GOOGLE_IDS if i != "google:gemini-3.1-pro-preview"
+    )
+
+
+async def test_google_model_catalog_thinking_heuristic(tmp_path, monkeypatch):
+    """Unlisted 'pro' models can't turn thinking off; flash/others get all levels."""
+    _gemini_env(tmp_path, monkeypatch)
+    _google_client(
+        monkeypatch,
+        {
+            "models": [
+                {
+                    "name": "models/gemini-9.9-pro",
+                    "displayName": "Gemini 9.9 Pro",
+                    "supportedGenerationMethods": ["generateContent"],
+                },
+                {
+                    "name": "models/gemini-9.9-flash",
+                    "displayName": "Gemini 9.9 Flash",
+                    "supportedGenerationMethods": ["generateContent"],
+                },
+            ]
+        },
+    )
+    models = await google_model_catalog()
+    by_id = {m["id"]: m for m in models}
+    assert by_id["google:gemini-9.9-pro"]["thinking_levels"] == [
+        "low",
+        "medium",
+        "high",
+    ]
+    assert by_id["google:gemini-9.9-flash"]["thinking_levels"] == [
+        "off",
+        "low",
+        "medium",
+        "high",
+    ]
+
+
+async def test_google_model_catalog_offline_falls_back_to_static(
+    tmp_path, monkeypatch
+):
+    """Transport errors, non-200s, and malformed payloads all yield the static list."""
+    _gemini_env(tmp_path, monkeypatch)
+    static = MODEL_CATALOG["google"]["models"]
+
+    _google_client(monkeypatch, None, error=httpx.ConnectError("refused"))
+    assert await google_model_catalog() == list(static)
+
+    _google_client(monkeypatch, None, error=httpx.ReadTimeout("slow"))
+    assert await google_model_catalog() == list(static)
+
+    # Non-200: raise_for_status throws inside the try block.
+    _google_client(
+        monkeypatch,
+        httpx.HTTPStatusError(
+            "403", request=httpx.Request("GET", "https://x"), response=httpx.Response(403)
+        ),
+    )
+    assert await google_model_catalog() == list(static)
+
+    _google_client(monkeypatch, "not even json-shaped")
+    assert await google_model_catalog() == list(static)
+
+    _google_client(monkeypatch, {"unexpected": "shape"})
+    assert await google_model_catalog() == list(static)
+
+
+async def test_google_model_catalog_no_key_returns_static(tmp_path, monkeypatch):
+    """No google_api_key -> static list, and the HTTP fetch never runs."""
+    _gemini_env(tmp_path, monkeypatch)
+    monkeypatch.delenv("GOOGLE_API_KEY")
+    _google_client(monkeypatch, None, error=httpx.ConnectError("must not be called"))
+    assert await google_model_catalog() == list(MODEL_CATALOG["google"]["models"])
+
+
+def test_models_google_dynamic_in_endpoint(client, monkeypatch):
+    """With a key, GET /api/models serves the google section's dynamic rows."""
+    test_client, _ = client
+    monkeypatch.setenv("GOOGLE_API_KEY", "test-google-key")
+
+    async def dynamic() -> list:
+        return [
+            {
+                "id": "google:gemini-2.5-flash",
+                "name": "Gemini 2.5 Flash",
+                "thinking_levels": ["off", "low", "medium", "high"],
+                "max_context": 1_048_576,
+            },
+            {
+                "id": "google:gemini-3.1-pro-preview",
+                "name": "Gemini 3.1 Pro",
+                "thinking_levels": ["low", "medium", "high"],
+                "max_context": 1_048_576,
+            },
+        ]
+
+    monkeypatch.setattr("app.agent.models.google_model_catalog", dynamic)
+    catalog = test_client.get("/api/models", headers=AUTH).json()
+    (google,) = [e for e in catalog["providers"] if e["provider"] == "google"]
+    assert google["label"] == "Google Gemini"
+    assert [m["id"] for m in google["models"]] == [
+        "google:gemini-2.5-flash",
+        "google:gemini-3.1-pro-preview",
+    ]
+    # google-cloud (Vertex) is untouched: still serves its static list.
+    (vertex,) = [e for e in catalog["providers"] if e["provider"] == "google-cloud"]
+    assert [m["id"] for m in vertex["models"]] == [
+        m["id"] for m in MODEL_CATALOG["google-cloud"]["models"]
+    ]
 
 
 # ---------------------------------------------------------------------------

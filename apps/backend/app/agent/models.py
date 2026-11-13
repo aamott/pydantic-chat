@@ -49,6 +49,12 @@ DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
 OLLAMA_TAGS_TIMEOUT = 3.0
 """Seconds to wait for ``GET {ollama}/api/tags`` before treating the server as offline."""
 
+GEMINI_MODELS_URL = "https://generativelanguage.googleapis.com/v1beta/models"
+"""Google AI Gemini API model-listing endpoint (``?key=<api_key>``)."""
+
+GEMINI_MODELS_TIMEOUT = 3.0
+"""Seconds to wait for the Gemini model list before falling back to the static catalog."""
+
 THINKING_LEVELS: tuple[str, ...] = ("off", "low", "medium", "high")
 """Normalized thinking levels the model picker offers on every thinking-capable model.
 
@@ -384,3 +390,86 @@ async def ollama_model_catalog() -> list[CatalogModel]:
         for name in (m.get("name") for m in models if isinstance(m, dict))
         if isinstance(name, str) and name
     ]
+
+
+def _gemini_thinking_levels(model_name: str) -> list[str]:
+    """Thinking levels for a Gemini model with no static catalog entry.
+
+    Gemini Pro models always think and can't disable reasoning, so they get
+    the no-off subset; Flash/Flash-Lite/other variants take the full
+    normalized scale. Hand-curated :data:`MODEL_CATALOG` levels win whenever
+    an id matches — this is only the fallback for API-only models.
+    """
+    return list(_NO_OFF) if "pro" in model_name else list(_ALL_THINKING)
+
+
+async def google_model_catalog() -> list[CatalogModel]:
+    """Every Gemini model the configured key can use, merged with static entries.
+
+    Queries ``GET {GEMINI_MODELS_URL}?key=<google_api_key>`` with a short
+    timeout — the same pattern as :func:`ollama_model_catalog`. Any transport
+    error, non-200, malformed payload, or missing key yields the static
+    ``google`` section of :data:`MODEL_CATALOG`: the hand-curated entries still
+    work, so a Google outage must never break ``GET /api/models``.
+
+    Models are kept only when ``supportedGenerationMethods`` includes
+    ``generateContent`` and the resource name starts with ``models/gemini-``
+    (drops embedding/AQA/tuned entries). Static flagships the list endpoint
+    doesn't expose (e.g. preview models) are appended; ids dedup, dynamic wins.
+    """
+    static = MODEL_CATALOG.get("google", CatalogProvider(label="", models=[]))["models"]
+    key = get_secret("google_api_key")
+    if not key:
+        return list(static)
+    try:
+        async with httpx.AsyncClient(timeout=GEMINI_MODELS_TIMEOUT) as client:
+            response = await client.get(GEMINI_MODELS_URL, params={"key": key})
+            response.raise_for_status()
+        payload: Any = response.json()
+    except (httpx.HTTPError, ValueError):
+        logger.info(
+            "Gemini model list unreachable; falling back to the static catalog"
+        )
+        return list(static)
+    models = payload.get("models") if isinstance(payload, dict) else None
+    if not isinstance(models, list):
+        return list(static)
+
+    static_by_id = {m["id"]: m for m in static}
+    catalog: list[CatalogModel] = []
+    seen: set[str] = set()
+    for entry in models:
+        if not isinstance(entry, dict):
+            continue
+        name = entry.get("name")
+        methods = entry.get("supportedGenerationMethods")
+        if not (
+            isinstance(name, str)
+            and name.startswith("models/gemini-")
+            and isinstance(methods, list)
+            and "generateContent" in methods
+        ):
+            continue
+        model_name = name.removeprefix("models/")
+        spec = f"google:{model_name}"
+        if spec in seen:
+            continue
+        seen.add(spec)
+        display = entry.get("displayName")
+        token_limit = entry.get("inputTokenLimit")
+        static_entry = static_by_id.get(spec)
+        catalog.append(
+            CatalogModel(
+                id=spec,
+                name=display if isinstance(display, str) and display else model_name,
+                thinking_levels=(
+                    static_entry["thinking_levels"]
+                    if static_entry
+                    else _gemini_thinking_levels(model_name)
+                ),
+                max_context=token_limit if isinstance(token_limit, int) else None,
+            )
+        )
+    # Append hand-curated static flagships the list endpoint didn't return.
+    catalog.extend(m for m in static if m["id"] not in seen)
+    return catalog

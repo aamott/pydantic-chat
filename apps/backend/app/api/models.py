@@ -42,6 +42,17 @@ async def list_models() -> ModelsOut:
                 )
             )
             continue
+        if provider == "google":
+            # Dynamic like Ollama, but degrades to the static google list —
+            # the hand-curated entries still work during a Google outage.
+            providers.append(
+                ModelProviderOut(
+                    provider=provider,
+                    label=agent_models.MODEL_CATALOG["google"]["label"],
+                    models=await agent_models.google_model_catalog(),
+                )
+            )
+            continue
         entry = agent_models.MODEL_CATALOG.get(provider)
         providers.append(
             ModelProviderOut(
