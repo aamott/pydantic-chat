@@ -24,25 +24,26 @@ export function ChatList({
   onSelect,
   onRename,
   onDelete,
-}: ChatListProps): React.JSX.Element {
+}: Readonly<ChatListProps>): React.JSX.Element {
   if (chats.length === 0) {
     return (
       <p className="px-2 py-1.5 text-[11px] text-neutral-400">No chats yet.</p>
     )
   }
   return (
-    <div role="list" aria-label="Chats" className="space-y-0.5">
+    <ul aria-label="Chats" className="space-y-0.5">
       {chats.map((chat) => (
-        <ChatRow
-          key={chat.id}
-          chat={chat}
-          active={chat.id === activeChatId}
-          onSelect={onSelect}
-          onRename={onRename}
-          onDelete={onDelete}
-        />
+        <li key={chat.id}>
+          <ChatRow
+            chat={chat}
+            active={chat.id === activeChatId}
+            onSelect={onSelect}
+            onRename={onRename}
+            onDelete={onDelete}
+          />
+        </li>
       ))}
-    </div>
+    </ul>
   )
 }
 

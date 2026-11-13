@@ -70,7 +70,7 @@ export type PartGroup =
 export function groupApprovals(parts: Part[]): PartGroup[] {
   const groups: PartGroup[] = []
   for (const part of parts) {
-    const last = groups[groups.length - 1]
+    const last = groups.at(-1)
     if (isPendingApproval(part)) {
       if (last?.kind === 'approvals') {
         last.parts.push(part)
@@ -94,11 +94,11 @@ export function ApprovalGroup({
   parts,
   onRespond,
   disabled,
-}: {
+}: Readonly<{
   parts: PendingApprovalPart[]
   onRespond: ApprovalResponder
   disabled?: boolean
-}): React.JSX.Element {
+}>): React.JSX.Element {
   const approveAll = (): void => {
     for (const part of parts) {
       void onRespond({ id: part.approval.id, approved: true })
@@ -148,11 +148,11 @@ function ApprovalRow({
   part,
   onRespond,
   disabled,
-}: {
+}: Readonly<{
   part: PendingApprovalPart
   onRespond: ApprovalResponder
   disabled?: boolean
-}): React.JSX.Element {
+}>): React.JSX.Element {
   const [denying, setDenying] = useState(false)
   const [reason, setReason] = useState('')
   // Local latch against double clicks — once the SDK applies the response the
@@ -263,7 +263,7 @@ function ApprovalRow({
  * line, file tools the workspace path (clickable → right panel) plus a
  * content/diff snippet, everything else compact JSON.
  */
-function ArgsSummary({ input }: { input: unknown }): React.JSX.Element | null {
+function ArgsSummary({ input }: Readonly<{ input: unknown }>): React.JSX.Element | null {
   const args = isRecord(input) ? input : null
   if (!args) return null
 
@@ -287,14 +287,14 @@ function ArgsSummary({ input }: { input: unknown }): React.JSX.Element | null {
   }
 
   return (
-    <pre className="mt-1 whitespace-pre-wrap break-words rounded bg-neutral-100 px-2 py-1 font-mono text-[11px] text-neutral-600">
+    <pre className="mt-1 whitespace-pre-wrap wrap-break-word rounded bg-neutral-100 px-2 py-1 font-mono text-[11px] text-neutral-600">
       {truncateJson(args)}
     </pre>
   )
 }
 
 /** File path that opens in the right panel's read-only File tab on click. */
-function PathLink({ path }: { path: string }): React.JSX.Element {
+function PathLink({ path }: Readonly<{ path: string }>): React.JSX.Element {
   const openFile = useUiStore((s) => s.openFile)
   return (
     <button
@@ -315,9 +315,9 @@ function PathLink({ path }: { path: string }): React.JSX.Element {
  */
 function EditPreview({
   input,
-}: {
+}: Readonly<{
   input: Record<string, unknown>
-}): React.JSX.Element | null {
+}>): React.JSX.Element | null {
   const edits = extractEdits(input)
   const replacement = edits[0]
   if (replacement) {
@@ -350,11 +350,11 @@ function DiffBlock({
   sign,
   text,
   tone,
-}: {
+}: Readonly<{
   sign: '+' | '-'
   text: string
   tone: 'added' | 'removed'
-}): React.JSX.Element {
+}>): React.JSX.Element {
   const toneClass =
     tone === 'added' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
   return (
