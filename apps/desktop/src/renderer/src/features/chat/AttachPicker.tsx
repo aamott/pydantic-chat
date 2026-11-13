@@ -18,10 +18,10 @@ const MAX_SHOWN = 50
 
 interface AttachPickerProps {
   /** Workspace whose files are listed; null disables the picker. */
-  workspaceId: string | null
+  readonly workspaceId: string | null
   /** Insert `[name](file:path)` into the composer text. */
-  onInsert: (markdown: string) => void
-  disabled?: boolean
+  readonly onInsert: (markdown: string) => void
+  readonly disabled?: boolean
 }
 
 export function AttachPicker({
@@ -98,7 +98,7 @@ export function AttachPicker({
               onKeyDown={onInputKeyDown}
               placeholder="Filter files…"
               spellCheck={false}
-              className="w-full rounded-md border border-neutral-200 px-2 py-1 text-xs outline-none placeholder:text-neutral-400 focus:border-blue-400"
+              className="w-full rounded-md border border-neutral-200 px-2 py-1 text-xs outline-none placeholder:text-neutral-400 focus:ring-2 focus:ring-blue-400"
             />
           </div>
           <div className="max-h-72 overflow-y-auto p-1" role="listbox" aria-label="Workspace files">

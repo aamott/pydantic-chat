@@ -32,17 +32,17 @@ const MENTION_MAX_SHOWN = 8
 
 interface ComposerProps {
   /** Chat this composer writes to — the pickers PATCH their overrides on it. */
-  chatId: string
+  readonly chatId: string
   /** Workspace the attach/mention pickers list files from. */
-  workspaceId: string | null
+  readonly workspaceId: string | null
   /** Chat status — drives the send/stop button swap. */
-  status: ChatStatus
+  readonly status: ChatStatus
   /** Called with the trimmed text when the user sends. */
-  onSend: (text: string) => void
+  readonly onSend: (text: string) => void
   /** Called when the user hits stop (local abort + backend cancel). */
-  onStop: () => void
+  readonly onStop: () => void
   /** Disable input entirely (e.g. no chat selected). */
-  disabled?: boolean
+  readonly disabled?: boolean
 }
 
 export function Composer({
@@ -64,9 +64,10 @@ export function Composer({
   const [mentionIndex, setMentionIndex] = useState(0)
   const mentionFiles = useWorkspaceFiles(workspaceId, mention !== null)
   const files = mentionFiles.status === 'ready' ? mentionFiles.files : []
-  const mentionShown = mention
-    ? filterMentionFiles(files, mention.query, MENTION_MAX_SHOWN)
-    : []
+  let mentionShown: FlatFile[] = []
+  if (mention) {
+    mentionShown = filterMentionFiles(files, mention.query, MENTION_MAX_SHOWN)
+  }
   /* Clamp: the list can shrink under the highlight as the query narrows. */
   const activeMentionIndex = Math.min(
     mentionIndex,
@@ -113,6 +114,16 @@ export function Composer({
     })
   }
 
+  /** Move the mention highlight by `delta`, clamped to the shown list. */
+  const moveMentionHighlight = (delta: number): void => {
+    setMentionIndex(
+      Math.min(
+        Math.max(activeMentionIndex + delta, 0),
+        Math.max(mentionShown.length - 1, 0),
+      ),
+    )
+  }
+
   /**
    * Route a keystroke to the open mention popup. Returns true when the
    * key was consumed — no other keydown handling should run.
@@ -122,12 +133,7 @@ export function Composer({
   ): boolean => {
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault()
-      setMentionIndex(
-        Math.min(
-          Math.max(activeMentionIndex + (e.key === 'ArrowDown' ? 1 : -1), 0),
-          Math.max(mentionShown.length - 1, 0),
-        ),
-      )
+      moveMentionHighlight(e.key === 'ArrowDown' ? 1 : -1)
       return true
     }
     if (e.key === 'Escape') {
@@ -194,7 +200,7 @@ export function Composer({
     <div className="shrink-0 border-t border-neutral-200 bg-white p-3">
       <div
         ref={bubbleRef}
-        className="mx-auto max-w-3xl rounded-xl border border-neutral-300 bg-white px-3 pt-2 pb-1.5 focus-within:border-blue-400"
+        className="mx-auto max-w-3xl rounded-xl border border-neutral-300 bg-white px-3 pt-2 pb-1.5 focus-within:ring-2 focus-within:ring-blue-400"
       >
         <textarea
           ref={textareaRef}
@@ -259,7 +265,11 @@ export function Composer({
               disabled={disabled || !text.trim()}
               aria-label="Send message"
               title="Send (Enter)"
-              className="shrink-0 rounded-lg bg-blue-600 p-2 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400"
+              className={
+                disabled || !text.trim()
+                  ? 'shrink-0 cursor-not-allowed rounded-lg bg-neutral-200 p-2 text-neutral-400'
+                  : 'shrink-0 rounded-lg bg-blue-600 p-2 text-white hover:bg-blue-700'
+              }
             >
               <SendHorizontal className="h-4 w-4" />
             </button>
