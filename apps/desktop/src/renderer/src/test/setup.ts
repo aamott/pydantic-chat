@@ -47,6 +47,8 @@ const apiStub: Api = {
   openSettings: async () => {},
   onOpenWorkspace: () => () => {},
   onBackendStatus: () => () => {},
+  notifyTheme: () => {},
+  onTheme: () => () => {},
 }
 
 if (typeof window !== 'undefined') {

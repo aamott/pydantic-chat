@@ -26,4 +26,14 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   ipcMain.handle(IpcChannels.backendInfo, () => deps.getBackendInfo())
 
   ipcMain.handle(IpcChannels.settingsOpen, () => deps.openSettings())
+
+  /* Settings window live-applies theme changes to itself; relay them to the
+   * other windows so they flip without waiting for a restart or refocus. */
+  ipcMain.on(IpcChannels.settingsTheme, (event, theme: string) => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (win.webContents !== event.sender && !win.isDestroyed()) {
+        win.webContents.send(IpcChannels.settingsTheme, theme)
+      }
+    }
+  })
 }

@@ -6,13 +6,14 @@ import { applyTheme } from './lib/theme'
 import type { AppSettings } from '@pydantic-chat/shared'
 import './styles/index.css'
 
-// Persisted theme applies on boot; live cross-window updates are a later
-// polish item (the settings window already previews via the same helper).
+// Persisted theme applies on boot; afterwards the settings window relays
+// theme changes through the main process (`settings:theme` IPC).
 void apiJson<AppSettings>('/api/settings')
   .then((settings) => applyTheme(settings.theme))
   .catch(() => {
     /* backend still booting — the default theme stays in effect */
   })
+window.api.onTheme(applyTheme)
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

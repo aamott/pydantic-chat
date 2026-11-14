@@ -255,4 +255,6 @@ export const IpcChannels = {
   menuOpenWorkspace: 'menu:open-workspace',
   /** main → renderer: sidecar lifecycle status broadcast. */
   backendStatus: 'backend:status',
+  /** settings window → main → other renderers: theme applied live. */
+  settingsTheme: 'settings:theme',
 } as const

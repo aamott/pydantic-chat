@@ -49,6 +49,19 @@ const api = {
     ipcRenderer.on(IpcChannels.backendStatus, listener)
     return () => ipcRenderer.removeListener(IpcChannels.backendStatus, listener)
   },
+
+  /** Settings window → main: theme changed; main relays to other windows. */
+  notifyTheme: (theme: string): void => {
+    ipcRenderer.send(IpcChannels.settingsTheme, theme)
+  },
+
+  /** Theme broadcast from another window — subscribe; returns unsubscribe. */
+  onTheme: (callback: (theme: string) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, theme: string): void =>
+      callback(theme)
+    ipcRenderer.on(IpcChannels.settingsTheme, listener)
+    return () => ipcRenderer.removeListener(IpcChannels.settingsTheme, listener)
+  },
 }
 
 export type Api = typeof api

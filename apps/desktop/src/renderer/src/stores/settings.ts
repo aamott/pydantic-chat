@@ -20,6 +20,12 @@ import { applyTheme } from '../lib/theme'
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' }
 
+/** Apply locally AND relay to the other windows via the main process. */
+function applyThemeLive(theme: string): void {
+  applyTheme(theme)
+  window.api.notifyTheme(theme)
+}
+
 /** Body for a secrets PUT — at least one field required by the backend. */
 export interface SecretPatch {
   key?: string
@@ -113,7 +119,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     const settings = get().settings
     if (!settings) return
     const next = { ...settings, [key]: value }
-    if (key === 'theme') applyTheme(value as string)
+    if (key === 'theme') applyThemeLive(value as string)
     set({ settings: next, dirty: isDirty(next, get().saved), savedAt: null })
   },
 
@@ -138,7 +144,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
         saving: false,
         savedAt: Date.now(),
       })
-      applyTheme(persisted.theme)
+      applyThemeLive(persisted.theme)
     } catch (error) {
       set({
         saving: false,
@@ -151,7 +157,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     const saved = get().saved
     if (!saved) return
     set({ settings: saved, dirty: false, error: null })
-    applyTheme(saved.theme)
+    applyThemeLive(saved.theme)
   },
 
   saveSecret: async (provider, body) => {
