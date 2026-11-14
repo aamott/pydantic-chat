@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Check, Pencil, Trash2, X } from 'lucide-react'
 import type { ChatSummary } from '@pydantic-chat/shared'
 import { formatRelativeTime } from '../../lib/time'
+import { confirmBannerClass, iconButtonClass } from '../../lib/ui'
 
 interface ChatListProps {
   chats: ChatSummary[]
@@ -121,7 +122,7 @@ function ChatRow({
 
   if (confirmingDelete) {
     return (
-      <div className="flex items-center gap-1 rounded-md bg-danger-soft px-2 py-1 text-xs text-danger">
+      <div className={confirmBannerClass()}>
         <span className="min-w-0 flex-1 truncate">Delete this chat?</span>
         <RowButton
           label="Confirm delete"
@@ -203,11 +204,7 @@ function RowButton({
       }}
       aria-label={label}
       title={label}
-      className={`rounded p-1 ${
-        tone === 'danger'
-          ? 'text-muted hover-bg-danger-soft hover-text-danger'
-          : 'text-muted hover-bg-overlay hover-text-default'
-      }`}
+      className={iconButtonClass({ tone, surface: 'subtle' })}
     >
       {children}
     </button>

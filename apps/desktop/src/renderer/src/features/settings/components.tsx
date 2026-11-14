@@ -13,7 +13,7 @@ import { SearchContext, SectionMatchedContext, matchesSearch } from './search'
 
 /** Standard text/select input styling. */
 export const inputClass =
-  'w-full rounded-md border border-strong bg-surface px-2.5 py-1.5 text-sm text-default placeholder-faint focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500'
+  'w-full rounded-md border border-strong bg-surface px-2.5 py-1.5 text-sm text-default placeholder-faint focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:cursor-not-allowed disabled-bg-overlay disabled-text-faint'
 
 /** Primary (blue) action button. */
 export const primaryButtonClass =
@@ -22,6 +22,46 @@ export const primaryButtonClass =
 /** Secondary (bordered) action button. */
 export const secondaryButtonClass =
   'rounded-md border border-strong px-3 py-1.5 text-sm text-secondary hover-bg-subtle disabled:cursor-not-allowed disabled:opacity-50'
+
+/** Inline error banner above a section's content. */
+export const errorBannerClass =
+  'rounded-md border border-danger bg-danger-soft px-3 py-2 text-sm text-danger'
+
+/**
+ * Small rounded status chip ("built-in", "custom", transport, key source).
+ * Compose with layout extras (`shrink-0`, `ml-2`, `inline-flex items-center
+ * gap-1` when an icon leads).
+ */
+export function chipClass(tone: 'neutral' | 'accent' | 'success'): string {
+  switch (tone) {
+    case 'accent':
+      return 'rounded-full bg-accent-soft px-2 py-0.5 text-xs text-accent'
+    case 'success':
+      return 'rounded-full bg-success-soft px-2 py-0.5 text-xs text-success'
+    default:
+      return 'rounded-full bg-raised px-2 py-0.5 text-xs text-muted'
+  }
+}
+
+/** "New X" add button below a settings list (secondary + Plus icon). */
+export function AddButton({
+  label,
+  onClick,
+}: Readonly<{
+  label: string
+  onClick: () => void
+}>): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`${secondaryButtonClass} mt-2 inline-flex items-center gap-1.5`}
+    >
+      <Plus className="h-4 w-4" />
+      {label}
+    </button>
+  )
+}
 
 /** Section title + optional description shown at the top of each section. */
 export function SectionHeading({

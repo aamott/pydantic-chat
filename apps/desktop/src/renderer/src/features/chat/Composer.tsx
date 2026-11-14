@@ -254,7 +254,7 @@ export function Composer({
               onClick={onStop}
               aria-label="Stop generating"
               title="Stop"
-              className="shrink-0 rounded-lg bg-inverse p-2 text-on-inverse hover:bg-neutral-300"
+              className="shrink-0 rounded-lg bg-inverse p-2 text-on-inverse hover-bg-inverse-hover"
             >
               <Square className="h-4 w-4" />
             </button>

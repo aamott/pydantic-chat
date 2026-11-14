@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { useUiStore, type RightPanelTab } from '../../stores/ui'
 import { DiffPanel } from './DiffPanel'
+import { EmptyState } from './EmptyState'
 import { FileExplorer } from './FileExplorer'
 import { FileViewer } from './FileViewer'
 import { TerminalView } from './TerminalView'
@@ -75,7 +76,7 @@ export function RightPanel({ workspaceId }: Readonly<RightPanelProps>): React.JS
           (filePath ? (
             <FileViewer workspaceId={workspaceId} path={filePath} line={line} />
           ) : (
-            <Placeholder
+            <EmptyState
               icon={FileCode}
               title="No file open"
               note="File references in chat and the explorer will open here."
@@ -85,24 +86,6 @@ export function RightPanel({ workspaceId }: Readonly<RightPanelProps>): React.JS
         {activeTab === 'diff' && <DiffPanel />}
         {activeTab === 'terminal' && <TerminalView />}
       </div>
-    </div>
-  )
-}
-
-function Placeholder({
-  icon: Icon,
-  title,
-  note,
-}: Readonly<{
-  icon: LucideIcon
-  title: string
-  note: string
-}>): React.JSX.Element {
-  return (
-    <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-      <Icon className="h-6 w-6 text-faint" />
-      <p className="text-sm text-muted">{title}</p>
-      <p className="text-xs text-faint">{note}</p>
     </div>
   )
 }

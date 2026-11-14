@@ -18,6 +18,7 @@ import {
 import type { Workspace } from '@pydantic-chat/shared'
 import { useChatsStore } from '../../stores/chats'
 import { pathBasename } from '../../lib/paths'
+import { confirmBannerClass, iconButtonClass } from '../../lib/ui'
 import { ChatList } from './ChatList'
 
 interface WorkspaceSectionProps {
@@ -45,7 +46,7 @@ export function WorkspaceSection({
   if (confirmingDelete) {
     return (
       <div className="space-y-0.5">
-        <div className="flex items-center gap-1 rounded-md bg-danger-soft px-1.5 py-1 text-xs text-danger">
+        <div className={confirmBannerClass('px-1.5')}>
           <span className="min-w-0 flex-1 truncate" title={workspace.path}>
             Delete “{name}” and its chats?
           </span>
@@ -54,7 +55,7 @@ export function WorkspaceSection({
             aria-label="Confirm delete workspace"
             title="Confirm delete"
             onClick={() => void deleteWorkspace(workspace.id)}
-            className="rounded p-1 text-danger hover-bg-danger-soft"
+            className="rounded p-1 text-danger hover-bg-danger-soft-hover"
           >
             <Check className="h-3.5 w-3.5" />
           </button>
@@ -118,7 +119,7 @@ export function WorkspaceSection({
             onClick={() => void createChat(workspace.id)}
             aria-label={`New chat in ${name}`}
             title="New chat"
-            className="rounded p-1 text-muted hover-bg-overlay hover-text-default"
+            className={iconButtonClass({ surface: 'subtle' })}
           >
             <Plus className="h-3.5 w-3.5" />
           </button>
@@ -127,7 +128,7 @@ export function WorkspaceSection({
             onClick={() => setConfirmingDelete(true)}
             aria-label={`Delete workspace ${name}`}
             title="Delete workspace"
-            className="rounded p-1 text-muted hover-bg-danger-soft hover-text-danger"
+            className={iconButtonClass({ tone: 'danger', surface: 'subtle' })}
           >
             <Trash2 className="h-3.5 w-3.5" />
           </button>

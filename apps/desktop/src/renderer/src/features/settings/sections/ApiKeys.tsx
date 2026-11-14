@@ -20,6 +20,7 @@ import { useSettingsStore } from '../../../stores/settings'
 import {
   Field,
   SectionHeading,
+  chipClass,
   inputClass,
   primaryButtonClass,
   secondaryButtonClass,
@@ -106,7 +107,7 @@ function ProviderField({
 function StatusBadge({ provider }: Readonly<{ provider: ProviderStatus }>): React.JSX.Element {
   if (provider.has_key) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-success-soft px-2 py-0.5 text-xs text-success">
+      <span className={`inline-flex items-center gap-1 ${chipClass('success')}`}>
         <KeyRound className="h-3 w-3" />
         {provider.source === 'env' ? 'From environment' : 'Key saved'}
       </span>
@@ -114,13 +115,13 @@ function StatusBadge({ provider }: Readonly<{ provider: ProviderStatus }>): Reac
   }
   if (provider.provider === 'ollama' || provider.configured) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-accent-soft px-2 py-0.5 text-xs text-accent">
+      <span className={`inline-flex items-center gap-1 ${chipClass('accent')}`}>
         No key needed
       </span>
     )
   }
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-raised px-2 py-0.5 text-xs text-muted">
+    <span className={`inline-flex items-center gap-1 ${chipClass('neutral')}`}>
       Not set
     </span>
   )

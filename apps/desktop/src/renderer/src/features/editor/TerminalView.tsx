@@ -18,6 +18,7 @@ import type { UIMessage } from 'ai'
 import { Loader2, SquareTerminal } from 'lucide-react'
 import { dataPartsOf, asShellPhase } from '../../lib/dataParts'
 import { FileLink } from '../chat/partKit'
+import { EmptyState } from './EmptyState'
 import type { AppChat } from '../../lib/transport'
 import { getChat, useChatsStore } from '../../stores/chats'
 import { useUiStore } from '../../stores/ui'
@@ -228,12 +229,10 @@ function StatusBadge({ block }: Readonly<{ block: CommandBlock }>): React.JSX.El
 
 function EmptyTerminal(): React.JSX.Element {
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-      <SquareTerminal className="h-6 w-6 text-faint" />
-      <p className="text-sm text-muted">No shell activity yet</p>
-      <p className="text-xs text-faint">
-        Live `shell` tool output appears here while a command runs.
-      </p>
-    </div>
+    <EmptyState
+      icon={SquareTerminal}
+      title="No shell activity yet"
+      note="Live `shell` tool output appears here while a command runs."
+    />
   )
 }

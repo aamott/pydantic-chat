@@ -58,7 +58,7 @@ export type ApprovalResponder = (response: {
 }) => void | PromiseLike<void>
 
 /** Chunked render item: a part, or a run of consecutive pending approvals. */
-export type PartGroup =
+type PartGroup =
   | { kind: 'part'; part: Part }
   | { kind: 'approvals'; parts: PendingApprovalPart[] }
 

@@ -37,6 +37,7 @@
   --c-raised: var(--color-neutral-100);
   --c-overlay: var(--color-neutral-200);
   --c-inverse: var(--color-neutral-800);
+  --c-inverse-hover: var(--color-neutral-700);
   /* text */
   --c-ink-strong: var(--color-neutral-900);
   --c-ink: var(--color-neutral-800);
@@ -56,6 +57,7 @@
   --c-accent-line-soft: var(--color-blue-300);
   /* status colors */
   --c-danger: var(--color-red-600);
+  --c-danger-hover: var(--color-red-700);
   --c-danger-soft: var(--color-red-50);
   --c-danger-line: var(--color-red-300);
   --c-warning: var(--color-amber-600);
@@ -64,8 +66,9 @@
   --c-success: var(--color-emerald-700);
   --c-success-soft: var(--color-emerald-50);
   --c-success-soft-hover: var(--color-emerald-100);
-  --c-success-line: var(--color-emerald-300);
   --c-danger-soft-hover: var(--color-red-100);
+  /* FileViewer anchor-line highlight (var only — consumed by non-Tailwind code) */
+  --c-anchor: rgb(250 204 21 / 0.18);
 }
 [data-theme='dark'] {
   --c-surface: var(--color-neutral-900);
@@ -73,6 +76,7 @@
   --c-raised: var(--color-neutral-700);
   --c-overlay: var(--color-neutral-600);
   --c-inverse: var(--color-neutral-200);
+  --c-inverse-hover: var(--color-neutral-300);
   --c-ink-strong: var(--color-neutral-100);
   --c-ink: var(--color-neutral-200);
   --c-ink-soft: var(--color-neutral-300);
@@ -88,6 +92,7 @@
   --c-accent-line: var(--color-blue-400);
   --c-accent-line-soft: var(--color-blue-700);
   --c-danger: var(--color-red-400);
+  --c-danger-hover: var(--color-red-300);
   --c-danger-soft: color-mix(in oklab, var(--color-red-950) 40%, transparent);
   --c-danger-line: var(--color-red-800);
   --c-warning: var(--color-amber-400);
@@ -96,8 +101,8 @@
   --c-success: var(--color-emerald-400);
   --c-success-soft: color-mix(in oklab, var(--color-emerald-950) 40%, transparent);
   --c-success-soft-hover: color-mix(in oklab, var(--color-emerald-900) 50%, transparent);
-  --c-success-line: var(--color-emerald-700);
   --c-danger-soft-hover: color-mix(in oklab, var(--color-red-900) 50%, transparent);
+  --c-anchor: rgb(250 204 21 / 0.28);
 }
 
 /* Page backdrop: themed before React mounts and behind transparent chrome. */
@@ -105,65 +110,6 @@ body {
   background-color: var(--c-surface);
   color: var(--c-ink);
 }
-
-/* Text */
-.text-strong { color: var(--c-ink-strong); }
-.text-default { color: var(--c-ink); }
-.text-secondary { color: var(--c-ink-soft); }
-.text-muted { color: var(--c-ink-muted); }
-.text-faint { color: var(--c-ink-faint); }
-.text-on-inverse { color: var(--c-on-inverse); }
-.text-accent { color: var(--c-accent); }
-.hover-text-accent:hover { color: var(--c-accent-strong); }
-.text-danger { color: var(--c-danger); }
-.text-warning { color: var(--c-warning); }
-.text-success { color: var(--c-success); }
-.placeholder-faint::placeholder { color: var(--c-ink-faint); }
-.hover-text-default:hover { color: var(--c-ink); }
-.hover-text-danger:hover { color: var(--c-danger); }
-.disabled-text-faint:disabled { color: var(--c-ink-faint); }
-
-/* Surfaces */
-.bg-surface { background-color: var(--c-surface); }
-.bg-subtle { background-color: var(--c-subtle); }
-.bg-raised { background-color: var(--c-raised); }
-.bg-overlay { background-color: var(--c-overlay); }
-.bg-inverse { background-color: var(--c-inverse); }
-.bg-accent-soft { background-color: var(--c-accent-soft); }
-.bg-danger-soft { background-color: var(--c-danger-soft); }
-.bg-warning-soft { background-color: var(--c-warning-soft); }
-.bg-success-soft { background-color: var(--c-success-soft); }
-.hover-bg-subtle:hover { background-color: var(--c-subtle); }
-.hover-bg-raised:hover { background-color: var(--c-raised); }
-.hover-bg-overlay:hover { background-color: var(--c-overlay); }
-.hover-bg-danger-soft:hover { background-color: var(--c-danger-soft); }
-.hover-bg-accent-line:hover { background-color: var(--c-accent-line-soft); }
-.focus-bg-raised:focus { background-color: var(--c-raised); }
-.disabled-bg-overlay:disabled { background-color: var(--c-overlay); }
-/* SplitLayout drag separator's active state (a `data-separator` attribute
- * variant — semantic classes can't express those, so qualify directly). */
-.separator-active[data-separator='active'] { background-color: var(--c-accent-line); }
-
-/* Borders */
-.border-faint { border-color: var(--c-line-faint); }
-.border-subtle { border-color: var(--c-line); }
-.border-strong { border-color: var(--c-line-strong); }
-.border-accent { border-color: var(--c-accent-line); }
-.border-accent-soft { border-color: var(--c-accent-line-soft); }
-.border-danger { border-color: var(--c-danger-line); }
-.border-warning { border-color: var(--c-warning-line); }
-.border-success { border-color: var(--c-success-line); }
-.divide-subtle > * + * { border-color: var(--c-line); }
-
-/* Unified-diff row tones (DiffView ROW_TONE). */
-.diff-ctx { color: var(--c-ink-soft); }
-.diff-ctx:hover { background-color: var(--c-subtle); }
-.diff-add { background-color: var(--c-success-soft); color: var(--c-success); }
-.diff-add:hover { background-color: var(--c-success-soft-hover); }
-.diff-del { background-color: var(--c-danger-soft); color: var(--c-danger); }
-.diff-del:hover { background-color: var(--c-danger-soft-hover); }
-.diff-gap { background-color: var(--c-subtle); color: var(--c-ink-faint); }
-.diff-gap:hover { background-color: var(--c-raised); }
 
 /*
  * Streamdown's components use shadcn design tokens (bg-background,
@@ -194,13 +140,87 @@ body {
 }
 
 /*
- * Chat transcript prose: Streamdown renders with its own Tailwind defaults;
- * these rules only set block rhythm + text size inside a message.
+ * Semantic classes. These MUST live inside `@layer utilities`, declared
+ * after `@import 'tailwindcss'`: unlayered CSS beats every utility in that
+ * layer regardless of specificity, which would silently kill `hover:` /
+ * `focus:` / `disabled:` variants wherever they pair with a semantic class
+ * (e.g. `focus:border-blue-500` vs `.border-strong`). In-layer rules also
+ * emit after Tailwind's generated utilities, so this `.text-muted` (ink
+ * color) wins over the `.text-muted` Tailwind generates from the
+ * `--color-muted` shadcn token (a surface color).
  */
-.prose-chat {
-  font-size: 0.875rem;
-  line-height: 1.55;
-}
-.prose-chat > * + * {
-  margin-top: 0.6em;
+@layer utilities {
+  /* Text */
+  .text-strong { color: var(--c-ink-strong); }
+  .text-default { color: var(--c-ink); }
+  .text-secondary { color: var(--c-ink-soft); }
+  .text-muted { color: var(--c-ink-muted); }
+  .text-faint { color: var(--c-ink-faint); }
+  .text-on-inverse { color: var(--c-on-inverse); }
+  .text-accent { color: var(--c-accent); }
+  .hover-text-accent:hover { color: var(--c-accent-strong); }
+  .text-danger { color: var(--c-danger); }
+  .text-warning { color: var(--c-warning); }
+  .text-success { color: var(--c-success); }
+  .placeholder-faint::placeholder { color: var(--c-ink-faint); }
+  .hover-text-default:hover { color: var(--c-ink); }
+  .hover-text-danger:hover { color: var(--c-danger); }
+  .hover-text-danger-strong:hover { color: var(--c-danger-hover); }
+  .disabled-text-faint:disabled { color: var(--c-ink-faint); }
+
+  /* Surfaces */
+  .bg-surface { background-color: var(--c-surface); }
+  .bg-subtle { background-color: var(--c-subtle); }
+  .bg-raised { background-color: var(--c-raised); }
+  .bg-overlay { background-color: var(--c-overlay); }
+  .bg-inverse { background-color: var(--c-inverse); }
+  .bg-accent-soft { background-color: var(--c-accent-soft); }
+  .bg-danger-soft { background-color: var(--c-danger-soft); }
+  .bg-warning-soft { background-color: var(--c-warning-soft); }
+  .bg-success-soft { background-color: var(--c-success-soft); }
+  .hover-bg-subtle:hover { background-color: var(--c-subtle); }
+  .hover-bg-raised:hover { background-color: var(--c-raised); }
+  .hover-bg-overlay:hover { background-color: var(--c-overlay); }
+  .hover-bg-inverse-hover:hover { background-color: var(--c-inverse-hover); }
+  .hover-bg-danger-soft:hover { background-color: var(--c-danger-soft); }
+  .hover-bg-danger-soft-hover:hover { background-color: var(--c-danger-soft-hover); }
+  .hover-bg-accent-line-soft:hover { background-color: var(--c-accent-line-soft); }
+  .focus-bg-raised:focus { background-color: var(--c-raised); }
+  .disabled-bg-overlay:disabled { background-color: var(--c-overlay); }
+  /* SplitLayout drag separator's active state (a `data-separator` attribute
+   * variant — semantic classes can't express those, so qualify directly).
+   * Kept after the `.hover-bg-*` rules so the active state beats hover. */
+  .separator-active[data-separator='active'] { background-color: var(--c-accent-line); }
+
+  /* Borders */
+  .border-faint { border-color: var(--c-line-faint); }
+  .border-subtle { border-color: var(--c-line); }
+  .border-strong { border-color: var(--c-line-strong); }
+  .border-accent { border-color: var(--c-accent-line); }
+  .border-accent-soft { border-color: var(--c-accent-line-soft); }
+  .border-danger { border-color: var(--c-danger-line); }
+  .border-warning { border-color: var(--c-warning-line); }
+
+  /* Unified-diff row tones (DiffView ROW_TONE). */
+  .diff-ctx { color: var(--c-ink-soft); }
+  .diff-ctx:hover { background-color: var(--c-subtle); }
+  .diff-add { background-color: var(--c-success-soft); color: var(--c-success); }
+  .diff-add:hover { background-color: var(--c-success-soft-hover); }
+  .diff-del { background-color: var(--c-danger-soft); color: var(--c-danger); }
+  .diff-del:hover { background-color: var(--c-danger-soft-hover); }
+  .diff-gap { background-color: var(--c-subtle); color: var(--c-ink-faint); }
+  .diff-gap:hover { background-color: var(--c-raised); }
+
+  /*
+   * Chat transcript prose: Streamdown renders with its own Tailwind
+   * defaults; these rules only set block rhythm + text size inside a
+   * message.
+   */
+  .prose-chat {
+    font-size: 0.875rem;
+    line-height: 1.55;
+  }
+  .prose-chat > * + * {
+    margin-top: 0.6em;
+  }
 }

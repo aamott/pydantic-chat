@@ -2,12 +2,22 @@
  * Small renderers shared by the part components (MessagePart, ToolCard):
  * the bordered Collapsible wrapper, label/value dumps, chips, and the
  * clickable FileLink that opens the right panel's File tab.
+ *
+ * The bottom section is the composer-picker kit: the option-row class and
+ * the loading/error/empty/truncation status lines shared by AttachPicker,
+ * MentionList, ModelPicker and ProfilePicker.
  */
 import { useState, type ReactNode } from 'react'
-import { ChevronRight, Paperclip } from 'lucide-react'
+import {
+  ChevronRight,
+  File,
+  LoaderCircle,
+  Paperclip,
+  TriangleAlert,
+} from 'lucide-react'
 import { useUiStore } from '../../stores/ui'
 
-export const OUTPUT_LINE_LIMIT = 50
+const OUTPUT_LINE_LIMIT = 50
 
 export function Collapsible({
   label,
@@ -163,4 +173,91 @@ export function truncate(text: string): string {
   const lines = text.split('\n')
   if (lines.length <= OUTPUT_LINE_LIMIT) return text
   return `${lines.slice(0, OUTPUT_LINE_LIMIT).join('\n')}\n… (${lines.length - OUTPUT_LINE_LIMIT} more lines)`
+}
+
+/* ------------------------------------------------------------------ */
+/* Composer picker kit (AttachPicker / MentionList / ModelPicker /      */
+/* ProfilePicker)                                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Shared className for single-line listbox option rows. Text color is
+ * deliberately NOT included — ModelPicker switches `text-strong`/
+ * `text-secondary` per row, and two emitted text colors would collide.
+ * Compose with `text-secondary`, `focus-bg-raised focus:outline-none`,
+ * active `bg-raised`, etc.
+ */
+export const optionRowClass =
+  'flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs hover-bg-raised'
+
+/** Two-line option-row variant (name + description — ProfilePicker). */
+export const optionRowStartClass =
+  'flex w-full items-start gap-2 rounded-md px-2.5 py-1.5 text-left hover-bg-raised'
+
+/** Composer toolbar picker trigger (ModelPicker / ProfilePicker). */
+export const pickerTriggerClass =
+  'flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-xs text-secondary hover-bg-raised disabled:cursor-not-allowed disabled:opacity-50'
+
+/** Filter-input wrapper strip at the top of picker popovers. */
+export const pickerFilterWrapClass = 'border-b border-faint p-1.5'
+
+/** Base padding/size of the status lines inside picker listboxes. */
+export const pickerStatusClass = 'px-2.5 py-3 text-xs'
+
+/** "Loading files…" spinner row (AttachPicker / MentionList). */
+export function PickerLoading(): React.JSX.Element {
+  return (
+    <p className={`${pickerStatusClass} flex items-center gap-1.5 text-faint`}>
+      <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+      Loading files…
+    </p>
+  )
+}
+
+/** Danger status line inside picker listboxes. */
+export function PickerError({
+  children,
+}: Readonly<{
+  children: ReactNode
+}>): React.JSX.Element {
+  return <p className={`${pickerStatusClass} text-danger`}>{children}</p>
+}
+
+/** Faint status line inside picker listboxes (empty/no-match hints). */
+export function PickerNote({
+  children,
+}: Readonly<{
+  children: ReactNode
+}>): React.JSX.Element {
+  return <p className={`${pickerStatusClass} text-faint`}>{children}</p>
+}
+
+/** "Listing truncated" warning footer inside picker listboxes. */
+export function PickerTruncated({
+  children,
+}: Readonly<{
+  children: ReactNode
+}>): React.JSX.Element {
+  return (
+    <p className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] text-warning">
+      <TriangleAlert className="h-3 w-3" />
+      {children}
+    </p>
+  )
+}
+
+/** File icon + truncated path — the row content shared by file pickers. */
+export function FileOption({
+  path,
+}: Readonly<{
+  path: string
+}>): React.JSX.Element {
+  return (
+    <>
+      <File className="h-3.5 w-3.5 shrink-0 text-faint" />
+      <span className="min-w-0 truncate" title={path}>
+        {path}
+      </span>
+    </>
+  )
 }

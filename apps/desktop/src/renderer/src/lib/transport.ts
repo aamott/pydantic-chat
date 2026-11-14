@@ -32,7 +32,6 @@ import { newTurnMessages } from './messages'
 
 /** Concrete `Chat` + message type used app-wide (untyped `UIMessage`). */
 export type AppChat = Chat<UIMessage>
-export type AppUIMessage = UIMessage
 
 /**
  * `DefaultChatTransport` that treats a 404 on reconnect as "no live stream".

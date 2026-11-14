@@ -19,6 +19,7 @@ import { profileName } from '../../lib/profiles'
 import { findChatSummary, useChatsStore } from '../../stores/chats'
 import { useModelsStore } from '../../stores/models'
 import { useProfilesStore } from '../../stores/profiles'
+import { optionRowStartClass, pickerTriggerClass } from './partKit'
 import { Popover } from './Popover'
 
 interface ProfilePickerProps {
@@ -73,7 +74,7 @@ export function ProfilePicker({
         aria-haspopup="dialog"
         aria-expanded={open}
         title={`Permission profile: ${titleProfile}`}
-        className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-xs text-secondary hover-bg-raised disabled:cursor-not-allowed disabled:opacity-50"
+        className={pickerTriggerClass}
       >
         <ShieldCheck className="h-3.5 w-3.5 text-faint" />
         <span className="max-w-36 truncate">{buttonLabel}</span>
@@ -140,7 +141,7 @@ function OptionRow({
       type="button"
       aria-current={selected}
       onClick={onPick}
-      className="flex w-full items-start gap-2 rounded-md px-2.5 py-1.5 text-left hover-bg-raised focus-bg-raised focus:outline-none"
+      className={`${optionRowStartClass} focus-bg-raised focus:outline-none`}
     >
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-1 text-xs text-default">

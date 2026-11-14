@@ -85,7 +85,27 @@ const viewerTheme = EditorView.theme({
   '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': {
     backgroundColor: 'var(--c-overlay)',
   },
-  '.cm-anchor-line': { backgroundColor: 'rgb(250 204 21 / 0.18)' },
+  /* foldGutter's collapsed-region chip — CM's base theme ships a light
+   * `#eee` block that clashes in dark mode, so restyle it on the vars. */
+  '.cm-foldPlaceholder': {
+    backgroundColor: 'var(--c-raised)',
+    border: '1px solid var(--c-line)',
+    color: 'var(--c-ink-faint)',
+  },
+  /* bracketMatching() + highlightSelectionMatches() marks: the defaults are
+   * tuned for a white page, so tint them on vars that flip per theme. */
+  '.cm-matchingBracket': {
+    backgroundColor: 'var(--c-accent-soft)',
+    outline: '1px solid var(--c-accent-line-soft)',
+  },
+  '.cm-nonmatchingBracket': {
+    backgroundColor: 'var(--c-danger-soft)',
+    outline: '1px solid var(--c-danger-line)',
+  },
+  '.cm-selectionMatch': {
+    backgroundColor: 'var(--c-accent-soft)',
+  },
+  '.cm-anchor-line': { backgroundColor: 'var(--c-anchor)' },
   '&.cm-focused': { outline: 'none' },
 })
 
@@ -111,6 +131,33 @@ interface FileResponse {
   content: string
   language?: string
   size: number
+}
+
+/** Identity of the file currently rendered in the editor (`loadedRef`). */
+interface LoadedFile {
+  workspaceId: string
+  path: string
+  content: string
+}
+
+/**
+ * Whether `loaded` is the exact file a fetch targets. Drives both decisions
+ * in the load effect: a match means the fetch is a "silent" refresh of the
+ * file on screen (failures keep the stale view; identical content skips the
+ * rebuild), while a mismatch is a fresh load that must surface errors and
+ * rebuild. The `workspaceId` check matters because two workspaces can hold
+ * the same relative path — a workspace switch must not look like a refresh.
+ */
+export function isDisplayedFile(
+  loaded: LoadedFile | null,
+  workspaceId: string,
+  path: string,
+): boolean {
+  return (
+    loaded !== null &&
+    loaded.workspaceId === workspaceId &&
+    loaded.path === path
+  )
 }
 
 type ViewerState =
@@ -207,7 +254,7 @@ export function FileViewer({
   const containerRef = useRef<HTMLDivElement | null>(null)
   const viewRef = useRef<EditorView | null>(null)
   /** Doc currently in the editor — skips rebuilds on identical refetches. */
-  const loadedRef = useRef<{ path: string; content: string } | null>(null)
+  const loadedRef = useRef<LoadedFile | null>(null)
   const [state, setState] = useState<ViewerState>({ status: 'loading' })
   /** Bumped on window focus → re-fetch. */
   const [refreshKey, setRefreshKey] = useState(0)
@@ -223,7 +270,9 @@ export function FileViewer({
     }
     let cancelled = false
     // "Silent" = re-fetching the file already displayed (focus refresh).
-    const silent = loadedRef.current?.path === path
+    // An identical path in a different workspace is a fresh load, so its
+    // failures must surface instead of keeping the other workspace's file.
+    const silent = isDisplayedFile(loadedRef.current, workspaceId, path)
     if (!silent) setState({ status: 'loading' })
 
     const load = async (): Promise<void> => {
@@ -235,8 +284,8 @@ export function FileViewer({
       if (cancelled) return
 
       if (
-        loadedRef.current?.path === path &&
-        loadedRef.current.content === file.content
+        isDisplayedFile(loadedRef.current, workspaceId, path) &&
+        loadedRef.current?.content === file.content
       ) {
         setState({
           status: 'ready',
@@ -267,7 +316,7 @@ export function FileViewer({
           ],
         }),
       })
-      loadedRef.current = { path, content: file.content }
+      loadedRef.current = { workspaceId, path, content: file.content }
       setState({
         status: 'ready',
         size: file.size,

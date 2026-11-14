@@ -33,7 +33,7 @@ export function SplitLayout({ chat, right }: Readonly<SplitLayoutProps>): React.
       <Panel id="chat" minSize="30%" className="h-full min-w-0">
         {chat}
       </Panel>
-      <Separator className="w-1 bg-overlay transition-colors hover-bg-accent-line separator-active" />
+      <Separator className="w-1 bg-overlay transition-colors hover-bg-accent-line-soft separator-active" />
       <Panel
         id="right"
         defaultSize="35%"

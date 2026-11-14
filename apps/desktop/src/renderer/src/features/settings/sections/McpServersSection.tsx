@@ -10,12 +10,16 @@
  * for editing but are never logged server-side.
  */
 import { useCallback, useEffect, useState } from 'react'
-import { Pencil, Plus, Trash2 } from 'lucide-react'
+import { Pencil, Trash2 } from 'lucide-react'
 import type { McpServer, McpServerPatch, McpTransport } from '@pydantic-chat/shared'
 import { apiFetch, apiJson } from '../../../lib/api'
+import { iconButtonClass } from '../../../lib/ui'
 import {
+  AddButton,
   Field,
   SectionHeading,
+  chipClass,
+  errorBannerClass,
   inputClass,
   primaryButtonClass,
   secondaryButtonClass,
@@ -221,7 +225,7 @@ export function McpServersSection(): React.JSX.Element {
         description="External tool servers the agent may call. Changes apply to the next run; every call still goes through your permission profile."
       />
       {error && (
-        <p className="rounded-md border border-danger bg-danger-soft px-3 py-2 text-sm text-danger">
+        <p className={errorBannerClass}>
           {error}
         </p>
       )}
@@ -253,7 +257,7 @@ export function McpServersSection(): React.JSX.Element {
                   <span className="text-sm font-medium text-default">
                     {server.name}
                   </span>
-                  <span className="ml-2 rounded-full bg-raised px-2 py-0.5 text-xs text-muted">
+                  <span className={`ml-2 ${chipClass('neutral')}`}>
                     {server.transport}
                   </span>
                   <span className="block truncate font-mono text-xs text-muted">
@@ -266,7 +270,7 @@ export function McpServersSection(): React.JSX.Element {
                   type="button"
                   onClick={() => setForm(formFromServer(server))}
                   aria-label={`Edit ${server.name}`}
-                  className="rounded p-1 text-faint hover-bg-raised hover-text-default"
+                  className={iconButtonClass()}
                 >
                   <Pencil className="h-4 w-4" />
                 </button>
@@ -274,7 +278,7 @@ export function McpServersSection(): React.JSX.Element {
                   type="button"
                   onClick={() => void remove(server)}
                   aria-label={`Remove ${server.name}`}
-                  className="rounded p-1 text-faint hover-bg-raised hover-text-danger"
+                  className={iconButtonClass({ tone: 'danger' })}
                 >
                   <Trash2 className="h-4 w-4" />
                 </button>
@@ -283,14 +287,7 @@ export function McpServersSection(): React.JSX.Element {
           </ul>
         )}
         {!form && (
-          <button
-            type="button"
-            onClick={() => setForm(EMPTY_FORM)}
-            className={`${secondaryButtonClass} mt-2 inline-flex items-center gap-1.5`}
-          >
-            <Plus className="h-4 w-4" />
-            Add server
-          </button>
+          <AddButton label="Add server" onClick={() => setForm(EMPTY_FORM)} />
         )}
       </Field>
 

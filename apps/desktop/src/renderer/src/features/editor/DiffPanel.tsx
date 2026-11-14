@@ -15,6 +15,7 @@ import type { AppChat } from '../../lib/transport'
 import { getChat, useChatsStore } from '../../stores/chats'
 import { collectFileDiffs } from './diff'
 import { DiffView } from './DiffView'
+import { EmptyState } from './EmptyState'
 
 export function DiffPanel(): React.JSX.Element {
   const activeChatId = useChatsStore((s) => s.activeChatId)
@@ -39,12 +40,10 @@ function DiffList({ chat }: Readonly<{ chat: AppChat }>): React.JSX.Element {
 
 function EmptyDiff(): React.JSX.Element {
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-      <GitCompareArrows className="h-6 w-6 text-faint" />
-      <p className="text-sm text-muted">No edits yet</p>
-      <p className="text-xs text-faint">
-        Agent edit_file / write_file diffs appear here.
-      </p>
-    </div>
+    <EmptyState
+      icon={GitCompareArrows}
+      title="No edits yet"
+      note="Agent edit_file / write_file diffs appear here."
+    />
   )
 }

@@ -4,6 +4,7 @@
  * singleton settings window via `settings:open` IPC.
  */
 import { MessageSquare, Settings } from 'lucide-react'
+import { iconButtonColors } from '../../lib/ui'
 
 export function ActivityBar(): React.JSX.Element {
   return (
@@ -28,7 +29,7 @@ export function ActivityBar(): React.JSX.Element {
         onClick={() => void window.api.openSettings()}
         aria-label="Settings"
         title="Settings"
-        className="rounded-md p-2 text-muted hover-bg-raised hover-text-default"
+        className={`rounded-md p-2 ${iconButtonColors({ muted: true })}`}
       >
         <Settings className="h-5 w-5" />
       </button>

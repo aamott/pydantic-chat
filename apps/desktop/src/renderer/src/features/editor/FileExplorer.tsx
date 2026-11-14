@@ -29,7 +29,9 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { apiFetch } from '../../lib/api'
+import { iconButtonClass } from '../../lib/ui'
 import { useUiStore } from '../../stores/ui'
+import { EmptyState } from './EmptyState'
 
 /* ------------------------------------------------------------------ */
 /* Contract (mirrors `FileTreeNode`/`FileTreeOut` in app/api/schemas.py) */
@@ -228,7 +230,7 @@ export function FileExplorer({
   /* Null workspace → empty state, no fetch (mirrors FileViewer). */
   if (!workspaceId) {
     return (
-      <Centered icon={FolderTree} note="Open a workspace to browse files." />
+      <EmptyState icon={FolderTree} note="Open a workspace to browse files." />
     )
   }
 
@@ -273,7 +275,7 @@ export function FileExplorer({
           disabled={state.status === 'loading'}
           aria-label="Refresh file tree"
           title="Refresh file tree"
-          className="shrink-0 rounded p-1 text-muted hover-bg-raised hover-text-default disabled:opacity-40"
+          className={`shrink-0 ${iconButtonClass({ muted: true })} disabled:opacity-40`}
         >
           {state.status === 'loading' ? (
             <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
@@ -285,13 +287,13 @@ export function FileExplorer({
 
       {/* Tree body */}
       <div className="min-h-0 flex-1 overflow-auto py-1">
-        {state.status === 'loading' && <Centered note="Loading files…" />}
+        {state.status === 'loading' && <EmptyState note="Loading files…" />}
         {state.status === 'error' && (
-          <Centered tone="error" note={state.message} />
+          <EmptyState tone="error" note={state.message} />
         )}
         {state.status === 'ready' &&
           (children.length === 0 ? (
-            <Centered note="No files in this workspace." />
+            <EmptyState note="No files in this workspace." />
           ) : (
             <div role="tree" aria-label="Workspace files">
               {children.map((node) => (
@@ -409,30 +411,5 @@ function TreeRow({
         </div>
       )}
     </>
-  )
-}
-
-/* ------------------------------------------------------------------ */
-/* Centered status                                                      */
-/* ------------------------------------------------------------------ */
-
-function Centered({
-  icon: Icon,
-  note,
-  tone = 'muted',
-}: Readonly<{
-  icon?: LucideIcon
-  note: string
-  tone?: 'muted' | 'error'
-}>): React.JSX.Element {
-  return (
-    <div
-      className={`flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-xs ${
-        tone === 'error' ? 'text-danger' : 'text-faint'
-      }`}
-    >
-      {Icon && <Icon className="h-6 w-6 text-faint" />}
-      {note}
-    </div>
   )
 }

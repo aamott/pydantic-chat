@@ -19,7 +19,6 @@ import {
   ChevronRight,
   Copy,
   Lock,
-  Plus,
   Trash2,
 } from 'lucide-react'
 import type {
@@ -41,9 +40,13 @@ import {
   TOOL_GROUP_LABELS,
 } from '../../../lib/profiles'
 import { useProfilesStore } from '../../../stores/profiles'
+import { iconButtonClass } from '../../../lib/ui'
 import {
+  AddButton,
   Field,
   SectionHeading,
+  chipClass,
+  errorBannerClass,
   inputClass,
   primaryButtonClass,
   secondaryButtonClass,
@@ -204,7 +207,7 @@ export function ToolProfilesSection(): React.JSX.Element {
         description="Named bundles of approval mode + tool/skill allowlists. Profiles are selectable per chat in the composer and as the global default under Permissions; changes apply to the next run."
       />
       {banner && (
-        <p className="rounded-md border border-danger bg-danger-soft px-3 py-2 text-sm text-danger">
+        <p className={errorBannerClass}>
           {banner}
         </p>
       )}
@@ -251,14 +254,7 @@ export function ToolProfilesSection(): React.JSX.Element {
           </ul>
         )}
         {catalogsReady && !draft && (
-          <button
-            type="button"
-            onClick={openNew}
-            className={`${secondaryButtonClass} mt-2 inline-flex items-center gap-1.5`}
-          >
-            <Plus className="h-4 w-4" />
-            New profile
-          </button>
+          <AddButton label="New profile" onClick={openNew} />
         )}
       </Field>
 
@@ -312,16 +308,16 @@ function ProfileRow({
               {profile.name}
             </span>
             {profile.builtin ? (
-              <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-raised px-2 py-0.5 text-xs text-muted">
+              <span className={`inline-flex shrink-0 items-center gap-1 ${chipClass('neutral')}`}>
                 <Lock className="h-3 w-3" />
                 built-in
               </span>
             ) : (
-              <span className="shrink-0 rounded-full bg-accent-soft px-2 py-0.5 text-xs text-accent">
+              <span className={`shrink-0 ${chipClass('accent')}`}>
                 custom
               </span>
             )}
-            <span className="shrink-0 rounded-full bg-raised px-2 py-0.5 text-xs text-muted">
+            <span className={`shrink-0 ${chipClass('neutral')}`}>
               {profile.approval_mode}
             </span>
           </span>
@@ -338,7 +334,7 @@ function ProfileRow({
         disabled={busy}
         aria-label={`Duplicate ${profile.name}`}
         title="Duplicate as a custom profile"
-        className="shrink-0 rounded p-1 text-faint hover-bg-raised hover-text-default disabled:opacity-50"
+        className={`shrink-0 ${iconButtonClass()} disabled:opacity-50`}
       >
         <Copy className="h-4 w-4" />
       </button>
@@ -419,7 +415,7 @@ function ProfileEditor({
           type="button"
           onClick={onClose}
           aria-label="Collapse"
-          className="rounded p-1 text-faint hover-bg-raised hover-text-default"
+          className={iconButtonClass()}
         >
           <ChevronDown className="h-4 w-4" />
         </button>

@@ -38,6 +38,13 @@ import {
   useChatsStore,
 } from '../../stores/chats'
 import { useModelsStore } from '../../stores/models'
+import { iconButtonColors } from '../../lib/ui'
+import {
+  PickerNote,
+  optionRowClass,
+  pickerFilterWrapClass,
+  pickerTriggerClass,
+} from './partKit'
 import { Popover } from './Popover'
 
 /** `anthropic:claude-sonnet-4-6` → `claude-sonnet-4-6` (no prefix → as-is). */
@@ -299,7 +306,7 @@ export function ModelPicker({
         aria-haspopup="dialog"
         aria-expanded={open}
         title={`Model for this chat: ${effectiveModel}`}
-        className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-xs text-secondary hover-bg-raised disabled:cursor-not-allowed disabled:opacity-50"
+        className={pickerTriggerClass}
       >
         <span className="max-w-40 truncate">{shortModelName(effectiveModel)}</span>
         <ChevronUp className="h-3.5 w-3.5 text-faint" />
@@ -312,7 +319,7 @@ export function ModelPicker({
           align="end"
           className="w-64"
         >
-          <div className="border-b border-faint p-1.5">
+          <div className={pickerFilterWrapClass}>
             <div className="relative">
               <Search
                 aria-hidden
@@ -339,7 +346,7 @@ export function ModelPicker({
                   type="button"
                   onClick={clearQuery}
                   aria-label="Clear model filter"
-                  className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-0.5 text-faint hover-bg-raised hover-text-default"
+                  className={`absolute right-1 top-1/2 -translate-y-1/2 rounded p-0.5 ${iconButtonColors()}`}
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
@@ -359,12 +366,12 @@ export function ModelPicker({
             className="max-h-80 overflow-y-auto p-1"
           >
             {visibleRows.length === 0 && (
-              <p className="px-2.5 py-3 text-xs text-faint">
+              <PickerNote>
                 {providers.length === 0
                   ? (modelsError ??
                     'No configured model providers — add an API key in Settings.')
                   : 'No models match.'}
-              </p>
+              </PickerNote>
             )}
             {items.map((item) =>
               item.type === 'header' ? (
@@ -459,9 +466,9 @@ function ModelRow({
       onMouseEnter={(e) => onActivate(row, e.currentTarget, index)}
       onFocus={(e) => onActivate(row, e.currentTarget, index)}
       title={row.model.id}
-      className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs focus:outline-none ${
+      className={`${optionRowClass} focus:outline-none ${
         active ? 'bg-raised' : ''
-      } hover-bg-raised focus-bg-raised ${
+      } focus-bg-raised ${
         selected ? 'text-strong' : 'text-secondary'
       }`}
     >

@@ -18,6 +18,7 @@ import {
   sectionMatchesQuery,
 } from './search'
 import { primaryButtonClass, secondaryButtonClass } from './components'
+import { iconButtonColors, retryButtonClass } from '../../lib/ui'
 
 export function SettingsApp(): React.JSX.Element {
   const settings = useSettingsStore((s) => s.settings)
@@ -81,7 +82,7 @@ export function SettingsApp(): React.JSX.Element {
             type="button"
             aria-label="Clear search"
             onClick={() => setRawQuery('')}
-            className="shrink-0 rounded p-0.5 text-faint hover-bg-raised hover-text-default"
+            className={`shrink-0 rounded p-0.5 ${iconButtonColors()}`}
           >
             <X className="h-3.5 w-3.5" />
           </button>
@@ -119,7 +120,7 @@ export function SettingsApp(): React.JSX.Element {
               <button
                 type="button"
                 onClick={() => void load()}
-                className="shrink-0 rounded bg-red-600 px-2 py-0.5 text-white hover:bg-red-700"
+                className={retryButtonClass}
               >
                 Retry
               </button>
@@ -127,7 +128,7 @@ export function SettingsApp(): React.JSX.Element {
                 type="button"
                 aria-label="Dismiss"
                 onClick={dismissError}
-                className="shrink-0 text-danger hover-text-danger"
+                className="shrink-0 text-danger hover-text-danger-strong"
               >
                 <X className="h-3.5 w-3.5" />
               </button>

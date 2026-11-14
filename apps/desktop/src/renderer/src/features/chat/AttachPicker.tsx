@@ -9,8 +9,18 @@
  * most `MAX_SHOWN` filtered entries render at once.
  */
 import { useEffect, useRef, useState } from 'react'
-import { File, LoaderCircle, Plus, TriangleAlert } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import { fileMentionMarkdown, type FlatFile } from '../../lib/workspaceFiles'
+import { iconButtonColors } from '../../lib/ui'
+import {
+  FileOption,
+  PickerError,
+  PickerLoading,
+  PickerNote,
+  PickerTruncated,
+  optionRowClass,
+  pickerFilterWrapClass,
+} from './partKit'
 import { Popover } from './Popover'
 import { useWorkspaceFiles } from './useWorkspaceFiles'
 
@@ -78,7 +88,7 @@ export function AttachPicker({
         aria-expanded={open}
         aria-label="Attach a workspace file"
         title="Attach a workspace file"
-        className="shrink-0 rounded-md p-1 text-muted hover-bg-raised hover-text-default disabled:cursor-not-allowed disabled:opacity-50"
+        className={`shrink-0 rounded-md p-1 ${iconButtonColors({ muted: true })} disabled:cursor-not-allowed disabled:opacity-50`}
       >
         <Plus className="h-4 w-4" />
       </button>
@@ -89,7 +99,7 @@ export function AttachPicker({
           onClose={() => setOpen(false)}
           className="w-72"
         >
-          <div className="border-b border-faint p-1.5">
+          <div className={pickerFilterWrapClass}>
             <input
               ref={inputRef}
               type="text"
@@ -102,21 +112,14 @@ export function AttachPicker({
             />
           </div>
           <div className="max-h-72 overflow-y-auto p-1" role="listbox" aria-label="Workspace files">
-            {state.status === 'loading' && (
-              <p className="flex items-center gap-1.5 px-2.5 py-3 text-xs text-faint">
-                <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-                Loading files…
-              </p>
-            )}
+            {state.status === 'loading' && <PickerLoading />}
             {state.status === 'error' && (
-              <p className="px-2.5 py-3 text-xs text-danger">
-                Couldn't list files: {state.message}
-              </p>
+              <PickerError>Couldn't list files: {state.message}</PickerError>
             )}
             {state.status === 'ready' && shown.length === 0 && (
-              <p className="px-2.5 py-3 text-xs text-faint">
+              <PickerNote>
                 {filter ? 'No files match.' : 'No files in this workspace.'}
-              </p>
+              </PickerNote>
             )}
             {shown.map((file) => (
               <button
@@ -125,19 +128,15 @@ export function AttachPicker({
                 role="option"
                 aria-selected={false}
                 onClick={() => pick(file)}
-                className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-secondary hover-bg-raised focus-bg-raised focus:outline-none"
+                className={`${optionRowClass} text-secondary focus-bg-raised focus:outline-none`}
               >
-                <File className="h-3.5 w-3.5 shrink-0 text-faint" />
-                <span className="min-w-0 truncate" title={file.path}>
-                  {file.path}
-                </span>
+                <FileOption path={file.path} />
               </button>
             ))}
             {state.status === 'ready' && state.truncated && (
-              <p className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] text-warning">
-                <TriangleAlert className="h-3 w-3" />
+              <PickerTruncated>
                 Listing truncated — filter to narrow it down.
-              </p>
+              </PickerTruncated>
             )}
           </div>
         </Popover>

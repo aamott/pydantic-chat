@@ -16,6 +16,7 @@ import { findChatSummary, getChat, useChatsStore } from '../../stores/chats'
 import type { AppChat } from '../../lib/transport'
 import { asRunMeta, latestDataPart } from '../../lib/dataParts'
 import { lastUserMessage, messageText } from '../../lib/messages'
+import { retryButtonClass } from '../../lib/ui'
 import { MessageList } from './MessageList'
 import { Composer } from './Composer'
 import { RunMetaBadge } from './RunMetaBadge'
@@ -39,7 +40,7 @@ export function ChatPanel(): React.JSX.Element {
           <button
             type="button"
             onClick={() => void loadWorkspaces()}
-            className="shrink-0 rounded bg-red-600 px-2 py-0.5 text-white hover:bg-red-700"
+            className={retryButtonClass}
           >
             Retry
           </button>
@@ -199,7 +200,7 @@ function ChatError({
         <button
           type="button"
           onClick={() => void window.api.openSettings()}
-          className="flex shrink-0 items-center gap-1 rounded bg-red-600 px-2 py-0.5 text-white hover:bg-red-700"
+          className={`${retryButtonClass} flex items-center gap-1`}
         >
           <Settings className="h-3 w-3" />
           Open Settings
@@ -215,7 +216,7 @@ function ChatError({
         <button
           type="button"
           onClick={onRetry}
-          className="shrink-0 rounded bg-red-600 px-2 py-0.5 text-white hover:bg-red-700"
+          className={retryButtonClass}
         >
           Retry
         </button>
