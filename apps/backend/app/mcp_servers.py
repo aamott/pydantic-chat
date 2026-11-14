@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Self
 
@@ -115,6 +116,63 @@ def parse_mcp_servers(raw: Any) -> list[MCPServerSpec]:
                 error.errors()[0]["msg"] if error.errors() else error,
             )
     return specs
+
+
+# ---------------------------------------------------------------------------
+# Per-workspace masks (workspaces.mcp_overrides — a name -> enabled JSON map)
+# ---------------------------------------------------------------------------
+
+
+def parse_mcp_mask(raw: Any) -> dict[str, bool] | None:
+    """Normalize a decoded ``mcp_overrides`` value into a name->enabled mask.
+
+    ``raw`` is whatever the workspace column decoded to. ``None`` — and
+    anything that isn't a mapping — means "no workspace mask; inherit the
+    global flags". Non-bool values are dropped so a corrupt row can't
+    silently flip a flag; an empty dict is a real (no-op) mask.
+    """
+    if not isinstance(raw, Mapping):
+        return None
+    return {
+        str(name): enabled
+        for name, enabled in raw.items()
+        if isinstance(enabled, bool)
+    }
+
+
+def apply_mcp_mask(
+    specs: list[MCPServerSpec], mask: dict[str, bool] | None
+) -> list[MCPServerSpec]:
+    """Apply a workspace enable/disable mask to the global server registry.
+
+    ``mask`` is a name->enabled map (``workspaces.mcp_overrides``). A named
+    entry *replaces* the spec's global ``enabled`` flag for the workspace —
+    ``False`` masks a server out, ``True`` may re-enable one disabled
+    globally. Entries naming no registered server are stale (the server was
+    deleted or renamed after the mask was written) and are ignored with a
+    single warning. ``None`` returns ``specs`` verbatim.
+
+    Args:
+        specs: The global registry (e.g. from ``load_mcp_servers``).
+        mask: The workspace's decoded mask, or ``None`` to inherit.
+
+    Returns:
+        A new list — specs are never mutated in place.
+    """
+    if mask is None:
+        return specs
+    known = {spec.name for spec in specs}
+    stale = sorted(set(mask) - known)
+    if stale:
+        logger.warning(
+            "Workspace MCP mask names unknown servers; ignoring: %s", stale
+        )
+    return [
+        spec.model_copy(update={"enabled": mask[spec.name]})
+        if spec.name in mask
+        else spec
+        for spec in specs
+    ]
 
 
 # ---------------------------------------------------------------------------

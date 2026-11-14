@@ -416,7 +416,12 @@ def build_run_kwargs(
     # Lazy: app.mcp_servers -> app.api.schemas -> this module would be a cycle.
     # The MCP layer itself imports fastmcp lazily too, so a build with no
     # servers configured pays nothing.
-    from app.mcp_servers import build_mcp_capabilities, parse_mcp_servers
+    from app.mcp_servers import (
+        apply_mcp_mask,
+        build_mcp_capabilities,
+        parse_mcp_mask,
+        parse_mcp_servers,
+    )
 
     capabilities: list[AbstractCapability] = [
         LocalWorkspace(root, read_only=profile.workspace_read_only),
@@ -429,7 +434,12 @@ def build_run_kwargs(
         # them in `ApprovalRequiredToolset` — their calls join the same
         # deferred approval flow (`smart`'s ApprovalReviewer judges them too).
         *build_mcp_capabilities(
-            parse_mcp_servers(_setting(chat_settings, "mcp_servers")),
+            apply_mcp_mask(
+                parse_mcp_servers(_setting(chat_settings, "mcp_servers")),
+                # Per-workspace name->enabled mask over the global registry
+                # (workspaces.mcp_overrides, merged in by _run_settings).
+                parse_mcp_mask(_setting(chat_settings, "mcp_overrides")),
+            ),
             gate=profile.approval_mode != "bypass",
         ),
         _planning_capability(_setting(chat_settings, "chat_id")),

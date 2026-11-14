@@ -10,6 +10,7 @@ The mixin relies on plumbing defined on ``ChatStore`` (``_conn``, ``_run``,
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 import time
@@ -42,6 +43,8 @@ class Workspace:
     last_opened_at: int  # unix ms
     permission_profile: str | None
     """Per-workspace permission override; ``None`` inherits the global setting."""
+    mcp_overrides: dict[str, bool] | None
+    """Per-workspace MCP mask — server name -> enabled; ``None`` inherits the global registry."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +71,36 @@ CHAT_SELECT = (
     "thinking, permission_profile FROM chats"
 )
 """Full ``ChatSummary`` column list, shared by every chat read."""
+
+WORKSPACE_SELECT = (
+    "SELECT id, path, display_name, last_chat_id, created_at, last_opened_at, "
+    "permission_profile, mcp_overrides FROM workspaces"
+)
+"""Full ``Workspace`` column list, shared by every workspace read."""
+
+
+def _decode_mcp_overrides(raw: object) -> dict[str, bool] | None:
+    """JSON-decode a ``workspaces.mcp_overrides`` column value.
+
+    ``NULL`` reads as ``None`` (inherit the global registry). Malformed rows —
+    a schema the row predates or a hand-edited db — degrade to ``None`` with a
+    warning rather than breaking every workspace read.
+    """
+    if raw is None:
+        return None
+    try:
+        decoded = json.loads(str(raw))
+    except (json.JSONDecodeError, TypeError):
+        logger.warning("Ignoring malformed mcp_overrides value %r", raw)
+        return None
+    if not isinstance(decoded, dict):
+        logger.warning("Ignoring non-object mcp_overrides value %r", raw)
+        return None
+    return {
+        str(name): enabled
+        for name, enabled in decoded.items()
+        if isinstance(enabled, bool)
+    }
 
 CHAT_EDITABLE_FIELDS: frozenset[str] = frozenset(
     {"title", "model", "thinking", "permission_profile"}
@@ -123,8 +156,7 @@ class AppTablesMixin:
                 ),
             )
             row = self._conn.execute(
-                "SELECT id, path, display_name, last_chat_id, created_at, last_opened_at, permission_profile "
-                "FROM workspaces WHERE path = ?",
+                f"{WORKSPACE_SELECT} WHERE path = ?",
                 (normalized,),
             ).fetchone()
         return self._workspace_from_row(row)
@@ -135,8 +167,7 @@ class AppTablesMixin:
 
     def _get_workspace(self, workspace_id: str) -> Workspace | None:
         row = self._conn.execute(
-            "SELECT id, path, display_name, last_chat_id, created_at, last_opened_at, permission_profile "
-            "FROM workspaces WHERE id = ?",
+            f"{WORKSPACE_SELECT} WHERE id = ?",
             (workspace_id,),
         ).fetchone()
         return None if row is None else self._workspace_from_row(row)
@@ -147,8 +178,7 @@ class AppTablesMixin:
 
     def _list_workspaces(self) -> list[WorkspaceSummary]:
         workspaces = self._conn.execute(
-            "SELECT id, path, display_name, last_chat_id, created_at, last_opened_at, permission_profile "
-            "FROM workspaces ORDER BY last_opened_at DESC, id"
+            f"{WORKSPACE_SELECT} ORDER BY last_opened_at DESC, id"
         ).fetchall()
         chats = self._conn.execute(
             f"{CHAT_SELECT} ORDER BY updated_at DESC, id"
@@ -216,6 +246,27 @@ class AppTablesMixin:
             self._conn.execute(
                 "UPDATE workspaces SET permission_profile = ? WHERE id = ?",
                 (profile, workspace_id),
+            )
+
+    async def set_workspace_mcp_overrides(
+        self, workspace_id: str, overrides: dict[str, bool] | None
+    ) -> None:
+        """Set (or clear, with ``None``) a workspace's MCP enable/disable mask.
+
+        ``overrides`` is a server-name -> enabled map stored as JSON; each
+        entry replaces the global spec's ``enabled`` flag for this workspace's
+        runs. ``None`` writes ``NULL``, restoring global inheritance.
+        """
+        payload = None if overrides is None else json.dumps(overrides)
+        await self._run(self._set_workspace_mcp_overrides, workspace_id, payload)
+
+    def _set_workspace_mcp_overrides(
+        self, workspace_id: str, payload: str | None
+    ) -> None:
+        with self._conn:
+            self._conn.execute(
+                "UPDATE workspaces SET mcp_overrides = ? WHERE id = ?",
+                (payload, workspace_id),
             )
 
     # ------------------------------------------------------------------
@@ -449,6 +500,7 @@ class AppTablesMixin:
             created_at=row[4],
             last_opened_at=row[5],
             permission_profile=row[6],
+            mcp_overrides=_decode_mcp_overrides(row[7]),
         )
 
     @staticmethod

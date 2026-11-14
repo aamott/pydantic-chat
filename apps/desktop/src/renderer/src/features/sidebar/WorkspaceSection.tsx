@@ -20,6 +20,7 @@ import { useChatsStore } from '../../stores/chats'
 import { pathBasename } from '../../lib/paths'
 import { confirmBannerClass, iconButtonClass } from '../../lib/ui'
 import { ChatList } from './ChatList'
+import { WorkspaceMcpPicker } from './WorkspaceMcpPicker'
 
 interface WorkspaceSectionProps {
   workspace: Workspace
@@ -112,8 +113,9 @@ export function WorkspaceSection({
           )}
         </button>
 
-        {/* Hover actions: new chat, delete workspace. */}
+        {/* Hover actions: workspace MCP mask, new chat, delete workspace. */}
         <span className="hidden shrink-0 items-center group-hover:flex">
+          <WorkspaceMcpPicker workspace={workspace} />
           <button
             type="button"
             onClick={() => void createChat(workspace.id)}

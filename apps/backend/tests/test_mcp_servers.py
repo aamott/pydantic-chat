@@ -12,11 +12,19 @@ deferred-approval flow ``Permissions`` uses.
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
+from pydantic_ai import RunContext
 from pydantic_ai.capabilities import Toolset
-from pydantic_ai.toolsets import AbstractToolset, ApprovalRequiredToolset
+from pydantic_ai.models.test import TestModel
+from pydantic_ai.toolsets import (
+    AbstractToolset,
+    ApprovalRequiredToolset,
+    FunctionToolset,
+)
 from pydantic_ai.toolsets.prefixed import PrefixedToolset
+from pydantic_ai.usage import RunUsage
 
-from app.agent.factory import build_run_kwargs
+from app.agent.factory import ToolAllowlist, build_run_kwargs
+from app.api.chat import _run_settings
 from app.api.schemas import MCPServerSpec
 from app.config import set_secret
 from app.db.store import ChatStore
@@ -24,8 +32,10 @@ from app.main import create_app
 from app.mcp_servers import (
     MCP_SERVERS_KEY,
     ResilientToolset,
+    apply_mcp_mask,
     build_mcp_capabilities,
     load_mcp_servers,
+    parse_mcp_mask,
     parse_mcp_servers,
     save_mcp_servers,
 )
@@ -418,3 +428,273 @@ async def test_resilient_toolset_swallows_connect_failure():
     async with toolset:  # must not raise
         pass
     assert await toolset.get_tools(ctx=None) == {}
+
+
+# ---------------------------------------------------------------------------
+# Per-workspace masks (workspaces.mcp_overrides — a name -> enabled JSON map)
+# ---------------------------------------------------------------------------
+
+
+def _tool_profile(**overrides):
+    """A valid custom-profile payload for run-kwargs tests."""
+    body = {
+        "id": "reviewer",
+        "name": "Code reviewer",
+        "description": "Subset profile",
+        "approval_mode": "manual",
+        "workspace_read_only": False,
+        "tools": None,
+        "tool_prefixes": [],
+        "skills": None,
+    }
+    body.update(overrides)
+    return body
+
+
+def _run_ctx() -> RunContext:
+    """A minimal run context — enough for toolset ``get_tools`` calls."""
+    return RunContext(deps=None, model=TestModel(), usage=RunUsage())
+
+
+def _toolset_with(*names: str) -> FunctionToolset:
+    """A FunctionToolset exposing one no-op tool per name."""
+    toolset = FunctionToolset()
+    for name in names:
+        toolset.add_function(lambda: "", name=name)
+    return toolset
+
+
+def _specs(**flags: bool) -> list[MCPServerSpec]:
+    """The two fixture servers with per-name enabled flags (default on)."""
+    return [
+        MCPServerSpec.model_validate(
+            _stdio_server(enabled=flags.get("fs-tools", True))
+        ),
+        MCPServerSpec.model_validate(
+            _http_server(enabled=flags.get("web-tools", True))
+        ),
+    ]
+
+
+def _enabled_flags(specs: list[MCPServerSpec]) -> dict[str, bool]:
+    return {spec.name: spec.enabled for spec in specs}
+
+
+def test_parse_mcp_mask_normalizes_decoded_values():
+    assert parse_mcp_mask(None) is None
+    assert parse_mcp_mask("oops") is None
+    assert parse_mcp_mask([]) is None
+    assert parse_mcp_mask({"a": True, "b": False}) == {"a": True, "b": False}
+    assert parse_mcp_mask({}) == {}
+    # Non-bool values are dropped so a corrupt row can't silently flip a flag.
+    assert parse_mcp_mask({"a": "yes", "b": 1, "c": False}) == {"c": False}
+
+
+def test_apply_mcp_mask_unset_returns_specs_verbatim():
+    """No mask (NULL column) inherits the global flags exactly."""
+    specs = _specs(**{"web-tools": False})
+    assert apply_mcp_mask(specs, None) == specs
+
+
+def test_apply_mcp_mask_partial_override():
+    """A named entry replaces that spec's flag; the rest are untouched."""
+    masked = apply_mcp_mask(_specs(), {"fs-tools": False})
+    assert _enabled_flags(masked) == {"fs-tools": False, "web-tools": True}
+
+
+def test_apply_mcp_mask_true_reenables_globally_disabled():
+    """``true`` is a real override — it may un-disable a global server."""
+    masked = apply_mcp_mask(_specs(**{"fs-tools": False}), {"fs-tools": True})
+    assert _enabled_flags(masked) == {"fs-tools": True, "web-tools": True}
+
+
+def test_apply_mcp_mask_unknown_names_ignored():
+    """Stale entries (deleted/renamed servers) change nothing."""
+    specs = _specs()
+    masked = apply_mcp_mask(specs, {"gone": False, "also-gone": True})
+    assert _enabled_flags(masked) == {"fs-tools": True, "web-tools": True}
+
+
+def test_apply_mcp_mask_empty_dict_is_inherit():
+    masked = apply_mcp_mask(_specs(**{"fs-tools": False}), {})
+    assert _enabled_flags(masked) == {"fs-tools": False, "web-tools": True}
+
+
+def test_build_run_kwargs_workspace_mask_filters_servers(isolated_config):
+    """``mcp_overrides`` in chat_settings cuts masked-out servers from the run."""
+    set_secret("anthropic_api_key", "sk-ant-test")
+    settings = {
+        "model": "anthropic:claude-sonnet-4-6",
+        "permission_profile": "manual",
+        "mcp_servers": [_stdio_server(), _http_server()],
+        "mcp_overrides": {"fs-tools": False},
+    }
+    kwargs = build_run_kwargs(settings, isolated_config / "ws")
+    mcp_caps = _mcp_capabilities(kwargs)
+    assert [cap.toolset.server_name for cap in mcp_caps] == ["web-tools"]
+
+
+def test_build_run_kwargs_workspace_mask_all_disabled(isolated_config):
+    set_secret("anthropic_api_key", "sk-ant-test")
+    settings = {
+        "model": "anthropic:claude-sonnet-4-6",
+        "permission_profile": "manual",
+        "mcp_servers": [_stdio_server(), _http_server()],
+        "mcp_overrides": {"fs-tools": False, "web-tools": False},
+    }
+    kwargs = build_run_kwargs(settings, isolated_config / "ws")
+    assert _mcp_capabilities(kwargs) == []
+
+
+def test_build_run_kwargs_mask_unknown_names_still_ignored(isolated_config):
+    """A mask naming only stale servers leaves every global server in."""
+    set_secret("anthropic_api_key", "sk-ant-test")
+    settings = {
+        "model": "anthropic:claude-sonnet-4-6",
+        "mcp_servers": [_stdio_server()],
+        "mcp_overrides": {"deleted-server": False},
+    }
+    kwargs = build_run_kwargs(settings, isolated_config / "ws")
+    assert [cap.toolset.server_name for cap in _mcp_capabilities(kwargs)] == [
+        "fs-tools"
+    ]
+
+
+async def test_profile_prefixes_still_gate_masked_in_servers(isolated_config):
+    """The mask admits a capability; ``tool_prefixes`` still gate its tools.
+
+    A masked-in server not named by the profile's ``tool_prefixes`` keeps its
+    toolset capability (it exists, gated or not) but the assembled-toolset
+    ``FilteredToolset`` drops its tools — masking can never widen a profile.
+    """
+    set_secret("anthropic_api_key", "sk-ant-test")
+    settings = {
+        "model": "anthropic:claude-sonnet-4-6",
+        "permission_profile": "reviewer",
+        "tool_profiles": [_tool_profile(tool_prefixes=["fs-tools_*"])],
+        "mcp_servers": [_stdio_server(), _http_server()],
+        # Mask set but empty — both servers admitted by the workspace layer.
+        "mcp_overrides": {},
+    }
+    kwargs = build_run_kwargs(settings, isolated_config / "ws")
+    assert len(_mcp_capabilities(kwargs)) == 2
+    allowlist = next(
+        c for c in kwargs["capabilities"] if isinstance(c, ToolAllowlist)
+    )
+    assert allowlist.prefixes == frozenset({"fs-tools_"})
+    filtered = allowlist.get_wrapper_toolset(
+        _toolset_with("read_file", "fs-tools_read", "web-tools_search")
+    )
+    tools = await filtered.get_tools(_run_ctx())
+    # Only the prefixed server's tools survive: web-tools' tools are dropped
+    # (no prefix), and so is read_file (the profile declared prefixes only —
+    # tools=None keeps an empty exact-name allowlist).
+    assert sorted(tools) == ["fs-tools_read"]
+
+
+async def test_run_settings_workspace_mcp_mask(tmp_path, monkeypatch):
+    """workspace.mcp_overrides feeds the run settings; NULL means inherit."""
+    monkeypatch.setenv("APP_DATA_DIR", str(tmp_path / "data"))
+    store = ChatStore(tmp_path / "app.db")
+    try:
+        workspace = await store.get_or_create_workspace(tmp_path / "ws")
+        chat = await store.create_chat(workspace.id)
+
+        settings = await _run_settings(store, chat, workspace)
+        assert settings.get("mcp_overrides") is None
+
+        await store.set_workspace_mcp_overrides(
+            workspace.id, {"fs-tools": False}
+        )
+        workspace = await store.get_workspace(workspace.id)
+        settings = await _run_settings(store, chat, workspace)
+        assert settings["mcp_overrides"] == {"fs-tools": False}
+    finally:
+        store.close()
+
+
+# ---------------------------------------------------------------------------
+# Workspace-masked reads: /api/mcp-servers + /api/tool-catalog ?workspace_id=
+# ---------------------------------------------------------------------------
+
+
+def _create_workspace(test_client, path) -> dict:
+    response = test_client.post(
+        "/api/workspaces", json={"path": str(path)}, headers=AUTH
+    )
+    assert response.status_code == 200
+    return response.json()
+
+
+def _register_servers(test_client) -> None:
+    assert (
+        test_client.post("/api/mcp-servers", json=_stdio_server(), headers=AUTH).status_code
+        == 201
+    )
+    assert (
+        test_client.post("/api/mcp-servers", json=_http_server(), headers=AUTH).status_code
+        == 201
+    )
+
+
+def test_mcp_servers_list_reflects_workspace_mask(client):
+    """?workspace_id= reports the effective (masked) enabled flags."""
+    test_client, tmp_path = client
+    _register_servers(test_client)
+    workspace = _create_workspace(test_client, tmp_path / "ws")
+    patched = test_client.patch(
+        f"/api/workspaces/{workspace['id']}",
+        json={"mcp_overrides": {"fs-tools": False}},
+        headers=AUTH,
+    )
+    assert patched.status_code == 200
+
+    masked = test_client.get(
+        f"/api/mcp-servers?workspace_id={workspace['id']}", headers=AUTH
+    )
+    assert masked.status_code == 200
+    assert _enabled_flags(
+        [MCPServerSpec.model_validate(s) for s in masked.json()]
+    ) == {"fs-tools": False, "web-tools": True}
+
+    # The global registry itself is untouched — the mask is read-time only.
+    global_list = test_client.get("/api/mcp-servers", headers=AUTH).json()
+    assert all(s["enabled"] for s in global_list)
+
+
+def test_mcp_servers_list_unknown_workspace_404(client):
+    test_client, _ = client
+    assert (
+        test_client.get("/api/mcp-servers?workspace_id=nope", headers=AUTH).status_code
+        == 404
+    )
+
+
+def test_tool_catalog_reflects_workspace_mask(client):
+    """Masked-out servers lose their ``{name}_*`` prefix entry for that workspace."""
+    test_client, tmp_path = client
+    _register_servers(test_client)
+    workspace = _create_workspace(test_client, tmp_path / "ws")
+    test_client.patch(
+        f"/api/workspaces/{workspace['id']}",
+        json={"mcp_overrides": {"fs-tools": False}},
+        headers=AUTH,
+    )
+
+    masked = test_client.get(
+        f"/api/tool-catalog?workspace_id={workspace['id']}", headers=AUTH
+    ).json()
+    prefixes = {e["name"] for e in masked if e["group"] == "mcp"}
+    assert "web-tools_*" in prefixes
+    assert "fs-tools_*" not in prefixes
+
+    unscoped = test_client.get("/api/tool-catalog", headers=AUTH).json()
+    unscoped_prefixes = {e["name"] for e in unscoped if e["group"] == "mcp"}
+    assert {"fs-tools_*", "web-tools_*"} <= unscoped_prefixes
+
+    assert (
+        test_client.get(
+            "/api/tool-catalog?workspace_id=nope", headers=AUTH
+        ).status_code
+        == 404
+    )

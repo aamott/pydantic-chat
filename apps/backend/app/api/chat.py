@@ -509,8 +509,9 @@ async def _run_settings(
     (``build_run_kwargs`` then falls back to :data:`DEFAULT_PERMISSION_PROFILE`),
     ``model`` resolves via :func:`resolve_model_name` (chat -> default_model ->
     :data:`DEFAULT_MODEL`), and ``thinking`` is the chat's normalized level or
-    ``None``. ``chat_id`` (which scopes the ``Planning`` store) overlays
-    everything.
+    ``None``. ``mcp_overrides`` is workspace-only — a name->enabled mask over
+    the global ``mcp_servers`` registry (``None`` inherits). ``chat_id``
+    (which scopes the ``Planning`` store) overlays everything.
     """
     settings: dict[str, Any] = {
         key: _decode_setting(value)
@@ -520,6 +521,11 @@ async def _run_settings(
         settings["permission_profile"] = workspace.permission_profile
     if chat.permission_profile:
         settings["permission_profile"] = chat.permission_profile
+    # Same workspace->global inherit pattern as permission_profile: a set
+    # mask replaces spec.enabled per name in build_run_kwargs; NULL leaves
+    # the global registry's flags alone (the key is simply absent).
+    if workspace.mcp_overrides is not None:
+        settings["mcp_overrides"] = workspace.mcp_overrides
     settings["model"] = await resolve_model_name(chat, store)
     settings["thinking"] = chat.thinking
     settings["chat_id"] = chat.id

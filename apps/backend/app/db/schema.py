@@ -70,4 +70,11 @@ MIGRATIONS: tuple[str, ...] = (
     ALTER TABLE chats ADD COLUMN thinking TEXT;
     ALTER TABLE chats ADD COLUMN permission_profile TEXT;
     """,
+    # Per-workspace MCP enable/disable mask over the global `mcp_servers`
+    # registry: a JSON `{"server_name": bool}` map where each entry *replaces*
+    # the spec's global `enabled` flag for this workspace's runs. NULL
+    # inherits the global registry verbatim.
+    """
+    ALTER TABLE workspaces ADD COLUMN mcp_overrides TEXT;
+    """,
 )

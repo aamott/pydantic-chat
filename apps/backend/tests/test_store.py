@@ -80,11 +80,13 @@ def test_schema_created(store):
         # user_version tracks applied migrations, not a fixed number.
         assert conn.execute("PRAGMA user_version").fetchone()[0] == len(MIGRATIONS)
         assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
-        # Migration 2 adds the per-workspace permission-profile override column.
+        # Migration 2 adds the per-workspace permission-profile override column;
+        # migration 4 the per-workspace MCP enable/disable mask.
         workspace_cols = {
             row[1] for row in conn.execute("PRAGMA table_info(workspaces)")
         }
         assert "permission_profile" in workspace_cols
+        assert "mcp_overrides" in workspace_cols
     finally:
         conn.close()
     # foreign_keys is a per-connection pragma; check it on the store's own connection.
@@ -302,6 +304,21 @@ async def test_chat_crud_and_cascade_delete(store, tmp_path):
     await store.set_last_chat(ws2.id, c2.id)
     assert await store.delete_chat(c2.id) is True
     assert (await store.get_workspace(ws2.id)).last_chat_id is None
+
+
+async def test_workspace_mcp_overrides_roundtrip(store, tmp_path):
+    """The name->bool MCP mask stores as JSON TEXT; None writes NULL."""
+    ws = await store.get_or_create_workspace(tmp_path / "proj")
+    assert ws.mcp_overrides is None
+
+    await store.set_workspace_mcp_overrides(
+        ws.id, {"fs-tools": False, "web-tools": True}
+    )
+    ws = await store.get_workspace(ws.id)
+    assert ws.mcp_overrides == {"fs-tools": False, "web-tools": True}
+
+    await store.set_workspace_mcp_overrides(ws.id, None)
+    assert (await store.get_workspace(ws.id)).mcp_overrides is None
 
 
 async def test_settings_kv_roundtrip(store):

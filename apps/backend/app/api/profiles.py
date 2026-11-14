@@ -34,7 +34,7 @@ from app.api.schemas import (
     SkippedSkillOut,
     ToolCatalogEntry,
 )
-from app.mcp_servers import load_mcp_servers
+from app.mcp_servers import apply_mcp_mask, load_mcp_servers
 from app.profiles import (
     BUILTIN_PROFILE_IDS,
     BUILTIN_PROFILES,
@@ -173,8 +173,16 @@ def _find(profiles: list[ToolProfile], profile_id: str) -> int:
 
 
 @router.get("/tool-catalog")
-async def tool_catalog(store: StoreDep) -> list[ToolCatalogEntry]:
-    """The tools and MCP prefixes a profile's allowlists may name."""
+async def tool_catalog(
+    store: StoreDep, workspace_id: str | None = None
+) -> list[ToolCatalogEntry]:
+    """The tools and MCP prefixes a profile's allowlists may name.
+
+    ``workspace_id`` applies that workspace's ``mcp_overrides`` mask to the
+    ``{server}_*`` prefix entries — a masked-out server disappears from the
+    picker for that workspace, matching what a run there would expose. An
+    unknown workspace is a 404, matching ``/api/skills``.
+    """
     entries = [
         ToolCatalogEntry(
             name=name,
@@ -184,7 +192,16 @@ async def tool_catalog(store: StoreDep) -> list[ToolCatalogEntry]:
         for group, names in _CATALOG_GROUPS
         for name in names
     ]
-    for spec in await load_mcp_servers(store):
+    specs = await load_mcp_servers(store)
+    if workspace_id is not None:
+        workspace = await store.get_workspace(workspace_id)
+        if workspace is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No workspace named {workspace_id!r}",
+            )
+        specs = apply_mcp_mask(specs, workspace.mcp_overrides)
+    for spec in specs:
         if spec.enabled:
             entries.append(
                 ToolCatalogEntry(

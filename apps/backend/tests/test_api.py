@@ -11,6 +11,7 @@ from pydantic_ai.messages import (
     TextPart,
     UserPromptPart,
 )
+from pydantic_ai.ui._utils import set_ui_message_id
 
 from app.main import create_app
 
@@ -226,6 +227,50 @@ def test_workspace_permission_profile_patch(client):
     assert cleared.json()["permission_profile"] is None
 
 
+def test_workspace_mcp_overrides_patch(client):
+    """PATCH accepts a name->bool MCP mask; null clears back to inherit."""
+    test_client, tmp_path = client
+    workspace = _create_workspace(test_client, tmp_path)
+    assert workspace["mcp_overrides"] is None  # inherits the global registry
+
+    patched = test_client.patch(
+        f"/api/workspaces/{workspace['id']}",
+        json={"mcp_overrides": {"fs-tools": False, "web-tools": True}},
+        headers=AUTH,
+    )
+    assert patched.status_code == 200
+    assert patched.json()["mcp_overrides"] == {
+        "fs-tools": False,
+        "web-tools": True,
+    }
+    # The mask survives a fresh read of the workspace list.
+    assert (
+        test_client.get("/api/workspaces", headers=AUTH).json()[0][
+            "mcp_overrides"
+        ]
+        == {"fs-tools": False, "web-tools": True}
+    )
+
+    # A non-dict value is a schema error, not a silent write.
+    assert (
+        test_client.patch(
+            f"/api/workspaces/{workspace['id']}",
+            json={"mcp_overrides": 5},
+            headers=AUTH,
+        ).status_code
+        == 422
+    )
+
+    # An explicit null clears the mask (back to inheriting the global flags).
+    cleared = test_client.patch(
+        f"/api/workspaces/{workspace['id']}",
+        json={"mcp_overrides": None},
+        headers=AUTH,
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["mcp_overrides"] is None
+
+
 def test_chat_delete(client):
     test_client, tmp_path = client
     workspace = _create_workspace(test_client, tmp_path)
@@ -286,3 +331,138 @@ def test_messages_endpoint_empty_then_dumped(client):
     assert messages[0]["parts"][0]["type"] == "text"
     assert messages[0]["parts"][0]["text"] == "hi"
     assert messages[1]["parts"][0]["text"] == "hello"
+
+
+def _prompt(text: str, ui_message_id: str | None = None) -> ModelRequest:
+    """A user-prompt request, optionally stamped with the adapter's ui id."""
+    request = ModelRequest(parts=[UserPromptPart(content=text)])
+    if ui_message_id is not None:
+        set_ui_message_id(request, ui_message_id)
+    return request
+
+
+def _entries(*messages, parent: ConversationEntry | None = None) -> list[ConversationEntry]:
+    """A parent-linked entry chain over ``messages``, oldest first.
+
+    ``parent`` makes the chain a *tail*: the first entry points at it, which
+    is how a branch shares its prefix with the head chain in the real store.
+    """
+    entries = []
+    parent_id = parent.id if parent is not None else None
+    for message in messages:
+        entry = ConversationEntry(parent_id=parent_id, message=message)
+        entries.append(entry)
+        parent_id = entry.id
+    return entries
+
+
+def _seed_record(client, record, entries, expected_revision) -> None:
+    async def seed() -> None:
+        await client.app.state.store.write_record(
+            record, new_entries=entries, expected_revision=expected_revision
+        )
+
+    asyncio.run(seed())
+
+
+def test_versions_endpoint(client):
+    """``GET /chats/{id}/versions`` lists replaced user prompts per ui_message_id."""
+    test_client, tmp_path = client
+    workspace = _create_workspace(test_client, tmp_path)
+    chat = _create_chat(test_client, workspace["id"])
+
+    # Unknown chat -> 404; known chat with no conversation -> empty.
+    assert (
+        test_client.get("/api/chats/nope/versions", headers=AUTH).status_code
+        == 404
+    )
+    empty = test_client.get(f"/api/chats/{chat['id']}/versions", headers=AUTH)
+    assert empty.status_code == 200
+    assert empty.json() == {"versions": []}
+
+    # Shared prefix "setup"; head carries the "second try" prompt (ui id m-1),
+    # the left branch tail carries the replaced "first try" at the same id.
+    shared = _entries(_prompt("setup"))
+    head = [
+        shared[0],
+        *_entries(
+            _prompt("second try", ui_message_id="m-1"),
+            ModelResponse(parts=[TextPart(content="answer two")]),
+            parent=shared[-1],
+        ),
+    ]
+    branch_v1 = _entries(
+        _prompt("first try", ui_message_id="m-1"),
+        ModelResponse(parts=[TextPart(content="answer one")]),
+        parent=shared[-1],
+    )
+
+    record = ConversationRecord(
+        conversation_id=chat["id"],
+        head_id=head[-1].id,
+        scope=workspace["id"],
+        branches=[branch_v1[-1].id],
+    )
+    _seed_record(test_client, record, [shared[0], *head[1:], *branch_v1], None)
+
+    body = test_client.get(
+        f"/api/chats/{chat['id']}/versions", headers=AUTH
+    ).json()
+    assert len(body["versions"]) == 1
+    version = body["versions"][0]
+    assert version["message_id"] == "m-1"
+    assert version["text"] == "first try"
+    assert version["tip"] == branch_v1[-1].id
+    assert version["id"] == branch_v1[0].id
+    assert version["timestamp"]
+
+
+def test_versions_multiple_branches_and_skips(client):
+    """Branches are listed oldest-first; non-prompt tails are skipped."""
+    test_client, tmp_path = client
+    workspace = _create_workspace(test_client, tmp_path)
+    chat = _create_chat(test_client, workspace["id"])
+
+    shared = _entries(_prompt("setup"))
+    # v1 replaced at the same prompt; v2 replaced it later (branches order =
+    # left-behind order, oldest first).
+    branch_v1 = _entries(
+        _prompt("first try", ui_message_id="m-1"),
+        ModelResponse(parts=[TextPart(content="a1")]),
+        parent=shared[-1],
+    )
+    branch_v2 = _entries(
+        _prompt("second try", ui_message_id="m-1"),
+        ModelResponse(parts=[TextPart(content="a2")]),
+        parent=shared[-1],
+    )
+    head = [
+        shared[0],
+        *_entries(
+            _prompt("third try", ui_message_id="m-1"),
+            ModelResponse(parts=[TextPart(content="a3")]),
+            parent=shared[-1],
+        ),
+    ]
+    # A branch whose tail does not start at a user prompt (e.g. a rewritten
+    # tool-return request) can't be attributed to a transcript message.
+    stray = _entries(ModelRequest(parts=[]), parent=shared[-1])
+
+    record = ConversationRecord(
+        conversation_id=chat["id"],
+        head_id=head[-1].id,
+        scope=workspace["id"],
+        branches=[branch_v1[-1].id, branch_v2[-1].id, stray[-1].id],
+    )
+    _seed_record(
+        test_client,
+        record,
+        [shared[0], *head[1:], *branch_v1, *branch_v2, *stray],
+        None,
+    )
+
+    versions = test_client.get(
+        f"/api/chats/{chat['id']}/versions", headers=AUTH
+    ).json()["versions"]
+    assert [v["text"] for v in versions] == ["first try", "second try"]
+    assert all(v["message_id"] == "m-1" for v in versions)

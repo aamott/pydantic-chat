@@ -16,7 +16,7 @@ from pydantic import ValidationError
 
 from app.api.deps import StoreDep
 from app.api.schemas import MCPServerPatch, MCPServerSpec
-from app.mcp_servers import load_mcp_servers, save_mcp_servers
+from app.mcp_servers import apply_mcp_mask, load_mcp_servers, save_mcp_servers
 
 logger = logging.getLogger(__name__)
 
@@ -24,9 +24,26 @@ router = APIRouter(prefix="/api/mcp-servers", tags=["mcp-servers"])
 
 
 @router.get("")
-async def list_mcp_servers(store: StoreDep) -> list[MCPServerSpec]:
-    """Every registered MCP server, enabled or not, in stored order."""
-    return await load_mcp_servers(store)
+async def list_mcp_servers(
+    store: StoreDep, workspace_id: str | None = None
+) -> list[MCPServerSpec]:
+    """Every registered MCP server, enabled or not, in stored order.
+
+    ``workspace_id`` reports *effective* flags: the workspace's
+    ``mcp_overrides`` mask is applied at read time (the stored registry is
+    never mutated), so a masked-out server reads ``enabled: false`` for that
+    workspace. An unknown workspace is a 404, matching ``/api/skills``.
+    """
+    servers = await load_mcp_servers(store)
+    if workspace_id is None:
+        return servers
+    workspace = await store.get_workspace(workspace_id)
+    if workspace is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No workspace named {workspace_id!r}",
+        )
+    return apply_mcp_mask(servers, workspace.mcp_overrides)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)

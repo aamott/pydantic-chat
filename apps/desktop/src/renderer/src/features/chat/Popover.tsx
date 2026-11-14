@@ -19,6 +19,12 @@ interface PopoverProps {
   onClose: () => void
   /** Which anchor edge the card aligns to. */
   align?: 'start' | 'end'
+  /**
+   * Which side of the anchor the card opens on. 'top' (default) suits the
+   * composer at the window's bottom edge; 'bottom' suits triggers near the
+   * top of the window, like sidebar headers.
+   */
+  side?: 'top' | 'bottom'
   /** Vertical gap between anchor and card. */
   gap?: number
   className?: string
@@ -32,6 +38,7 @@ export function Popover({
   anchor,
   onClose,
   align = 'start',
+  side = 'top',
   gap = 6,
   className,
   children,
@@ -52,13 +59,15 @@ export function Popover({
         : rect.left
     setStyle({
       position: 'fixed',
-      bottom: window.innerHeight - rect.top + gap,
+      ...(side === 'bottom'
+        ? { top: rect.bottom + gap }
+        : { bottom: window.innerHeight - rect.top + gap }),
       left: Math.min(
         Math.max(left, VIEWPORT_MARGIN),
         Math.max(window.innerWidth - width - VIEWPORT_MARGIN, VIEWPORT_MARGIN),
       ),
     })
-  }, [anchor, align, gap])
+  }, [anchor, align, side, gap])
 
   /* Outside-click + Escape dismissal. */
   useLayoutEffect(() => {

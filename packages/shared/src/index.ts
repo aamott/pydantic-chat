@@ -8,6 +8,13 @@ export interface Workspace {
   last_opened_at: number
   /** Per-workspace permission override; null/absent inherits the global setting. */
   permission_profile?: string | null
+  /**
+   * Per-workspace MCP mask over the global `/api/mcp-servers` registry:
+   * `name -> enabled` entries *replace* that server's global `enabled` flag
+   * for this workspace's runs. null/absent inherits the registry verbatim.
+   * Entries naming deleted servers are ignored server-side.
+   */
+  mcp_overrides?: Record<string, boolean> | null
   missing?: boolean
   chats?: ChatSummary[]
 }

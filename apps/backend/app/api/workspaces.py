@@ -31,12 +31,13 @@ async def create_workspace(body: WorkspaceCreate, store: StoreDep) -> WorkspaceO
 async def patch_workspace(
     workspace_id: str, body: WorkspacePatch, store: StoreDep
 ) -> WorkspaceOut:
-    """Update ``display_name``/``last_chat_id``/``permission_profile``.
+    """Update ``display_name``/``last_chat_id``/``permission_profile``/``mcp_overrides``.
 
     ``last_chat_id`` and ``permission_profile`` take explicit ``null`` to clear
     (the latter falling back to the global permission setting). Profile ids
     are free-form — custom profiles make any string legal, and an unknown id
-    resolves to ``manual`` at run time.
+    resolves to ``manual`` at run time. ``mcp_overrides`` is a server-name ->
+    enabled mask over the global MCP registry; ``null`` inherits it again.
     """
     workspace = await store.get_workspace(workspace_id)
     if workspace is None:
@@ -58,6 +59,8 @@ async def patch_workspace(
         await store.set_workspace_permission_profile(
             workspace_id, body.permission_profile
         )
+    if "mcp_overrides" in body.model_fields_set:
+        await store.set_workspace_mcp_overrides(workspace_id, body.mcp_overrides)
     # Re-read after the updates; fall back to the earlier row (single-process store).
     workspace = await store.get_workspace(workspace_id) or workspace
     chats = await store.list_chats(workspace_id)

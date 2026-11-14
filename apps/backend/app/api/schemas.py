@@ -6,6 +6,7 @@ Field names stay snake_case: the frontend mirrors them in
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
@@ -54,6 +55,8 @@ class WorkspaceOut(BaseModel):
     last_chat_id: str | None
     permission_profile: str | None
     """Per-workspace permission override; ``None`` inherits the global setting."""
+    mcp_overrides: dict[str, bool] | None
+    """Per-workspace MCP mask — server name -> enabled; ``None`` inherits the global registry."""
     created_at: int
     last_opened_at: int
     missing: bool
@@ -70,6 +73,7 @@ class WorkspaceOut(BaseModel):
             display_name=row.display_name,
             last_chat_id=row.last_chat_id,
             permission_profile=row.permission_profile,
+            mcp_overrides=row.mcp_overrides,
             created_at=row.created_at,
             last_opened_at=row.last_opened_at,
             missing=not Path(row.path).exists(),
@@ -88,11 +92,15 @@ class WorkspacePatch(BaseModel):
 
     ``last_chat_id`` and ``permission_profile`` use ``model_fields_set`` at the
     route so an explicit ``null`` clears the value while an absent key keeps it.
+    ``mcp_overrides`` is a server-name -> enabled map over the global MCP
+    registry — ``null`` restores inheritance; unknown names are stored
+    verbatim (they go stale silently if the server is later removed).
     """
 
     display_name: str | None = Field(default=None, min_length=1)
     last_chat_id: str | None = None
     permission_profile: str | None = None
+    mcp_overrides: dict[str, bool] | None = None
 
 
 class ChatCreate(BaseModel):
@@ -100,6 +108,31 @@ class ChatCreate(BaseModel):
 
     title: str | None = Field(default=None, min_length=1)
     model: str | None = None
+
+
+class PromptVersionOut(BaseModel):
+    """One replaced prompt in ``GET /api/chats/{id}/versions``.
+
+    Produced from a ``ConversationRecord.branches`` tip: the branch's first
+    entry that diverges from the head chain, when it's a ``UserPromptPart``
+    request. ``id`` is that entry's store id — the version's stable key.
+    ``message_id`` is the ``ui_message_id`` the transcript's user message
+    shares with the request this version replaced; the client resubmits
+    against it. ``tip`` is the branch tip's entry id — the ``from_entry``
+    a future ``store.branch()`` checkout would pass.
+    """
+
+    id: str
+    message_id: str
+    tip: str
+    text: str
+    timestamp: datetime
+
+
+class ChatVersionsOut(BaseModel):
+    """``GET /api/chats/{id}/versions`` response — branches oldest-left first."""
+
+    versions: list[PromptVersionOut] = Field(default_factory=list)
 
 
 class ChatPatch(BaseModel):
