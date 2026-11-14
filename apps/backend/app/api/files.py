@@ -15,11 +15,13 @@ Never log file contents: paths only.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import shutil
 import stat
 import subprocess
+import tempfile
 from pathlib import Path, PurePath
 
 from anyio.to_thread import run_sync
@@ -27,7 +29,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from pydantic_ai_harness.filesystem._access import first_matching_pattern
 
 from app.api.deps import StoreDep
-from app.api.schemas import FileOut, FileTreeNode, FileTreeOut
+from app.api.schemas import FileOut, FileTreeNode, FileTreeOut, FileWriteIn
 from app.db import Workspace
 
 logger = logging.getLogger(__name__)
@@ -177,6 +179,83 @@ def _read_file_bytes(target: Path) -> tuple[bytes, int]:
     return data, len(data)
 
 
+def _file_version(data: bytes) -> str:
+    """The ``FileOut.version`` conflict token — a sha256 of the raw bytes.
+
+    A content hash (not mtime) is the conflict signal: mtime granularity
+    varies across filesystems, and an agent rewrite that lands identical
+    bytes shouldn't read as drift.
+    """
+    return hashlib.sha256(data).hexdigest()
+
+
+def _write_file_bytes(target: Path, content: str, if_match: str | None) -> bytes:
+    """Validate and write ``content`` to ``target``; returns the bytes written.
+
+    Runs on a worker thread. Guards mirror ``_read_file_bytes`` — the viewer
+    can only save files it could have read (existing regular file, same size
+    cap, no NUL bytes) — plus the save-time conflict check: when ``if_match``
+    carries the ``version`` from the client's read, a drifted file gets a 409
+    instead of a silent clobber. The check-then-write gap is accepted for v1
+    (no fs watching — see the story's known shortcomings).
+
+    The write itself goes through a same-directory temp file + ``os.replace``
+    so a crash mid-write can't leave a truncated file, and the original
+    file's mode is copied onto the temp first.
+
+    Raises:
+        HTTPException: 400 not a regular file or NUL in ``content``, 404
+            missing, 409 ``if_match`` stale, 413 content over the size cap.
+    """
+    try:
+        info = target.stat()
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="File not found"
+        ) from None
+    if not stat.S_ISREG(info.st_mode):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Path is not a file"
+        )
+    if "\x00" in content:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="NUL bytes are not writable (binary file?)",
+        )
+    data = content.encode("utf-8")
+    if len(data) > MAX_FILE_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail=f"Content exceeds the {MAX_FILE_BYTES}-byte limit",
+        )
+    if if_match is not None:
+        current = target.read_bytes()
+        if _file_version(current) != if_match:
+            logger.info("Rejected write to %s: if_match is stale", target)
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="File changed on disk since it was read",
+            )
+
+    fd, tmp_name = tempfile.mkstemp(
+        dir=target.parent, prefix=f".{target.name}.", suffix=".tmp"
+    )
+    tmp = Path(tmp_name)
+    try:
+        # fdopen+write can't short-write the way a bare os.write can.
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+        fd = -1  # fdopen owns the descriptor now
+        # Preserve the original mode — mkstemp creates 0o600.
+        os.chmod(tmp, stat.S_IMODE(info.st_mode))
+        os.replace(tmp, target)
+    finally:
+        if fd >= 0:
+            os.close(fd)
+        tmp.unlink(missing_ok=True)
+    return data
+
+
 def _rg_files(root: Path) -> list[str]:
     """``rg --files --sort path`` — gitignore-aware, matching Coder's ``list_files``."""
     result = subprocess.run(
@@ -300,6 +379,34 @@ async def read_file(
         language=_language_for(target.name),
         size=size,
         path=target.relative_to(root).as_posix(),
+        version=_file_version(data),
+    )
+
+
+@router.put("")
+async def write_file(
+    store: StoreDep,
+    body: FileWriteIn,
+    workspace_id: str = Query(min_length=1),
+    path: str = Query(min_length=1),
+) -> FileOut:
+    """Write one UTF-8 file under the workspace root (the viewer's save).
+
+    Same confinement as the read path — ``_resolve_workspace_file`` — and
+    the same "files only, no creation" shape. ``body.if_match`` is the
+    save-time conflict guard: echo the ``version`` from the client's last
+    read to get a 409 when the file drifted, or omit it to overwrite.
+    """
+    workspace = await _require_workspace(store, workspace_id)
+    root = _existing_root(workspace)
+    target = _resolve_workspace_file(root, path)
+    data = await run_sync(_write_file_bytes, target, body.content, body.if_match)
+    return FileOut(
+        content=body.content,
+        language=_language_for(target.name),
+        size=len(data),
+        path=target.relative_to(root).as_posix(),
+        version=_file_version(data),
     )
 
 

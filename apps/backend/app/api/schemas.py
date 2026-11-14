@@ -155,17 +155,35 @@ class ChatPatch(BaseModel):
 
 
 class FileOut(BaseModel):
-    """``GET /api/files`` response — one text file served to the CM6 viewer.
+    """``GET``/``PUT /api/files`` response — one text file served to the CM6 viewer.
 
     ``language`` is a ``@codemirror/language-data`` name (``None`` when the
     extension is unmapped — the frontend falls back to plain text). ``path``
-    is the root-relative POSIX spelling.
+    is the root-relative POSIX spelling. ``version`` is a content hash the
+    client echoes back as ``if_match`` on PUT — the save-time conflict guard
+    that stands in for filesystem watching (see the writable-editor story's
+    known shortcomings).
     """
 
     content: str
     language: str | None = None
     size: int
     path: str
+    version: str
+
+
+class FileWriteIn(BaseModel):
+    """``PUT /api/files`` body — new UTF-8 text plus an optional conflict token.
+
+    ``if_match`` is the ``version`` the client got on its last read; when
+    present, the write 409s if the on-disk hash has drifted. ``None`` (or a
+    missing key) saves unconditionally — the deliberate overwrite path.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    content: str
+    if_match: str | None = None
 
 
 class FileTreeNode(BaseModel):

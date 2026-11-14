@@ -109,6 +109,28 @@ export function findChatSummary(
   return undefined
 }
 
+/**
+ * Resolve the permission profile a chat actually runs under — the same
+ * inherit chain `ProfilePicker` displays: chat override → workspace →
+ * global. `chatId` may be null (e.g. the file viewer before any chat is
+ * selected); then the chain starts at `workspaceId`'s workspace. Falls
+ * back to `globalProfile` when nothing overrides.
+ */
+export function effectiveProfileId(
+  workspaces: Workspace[],
+  chatId: string | null,
+  workspaceId: string | null,
+  globalProfile: string,
+): string {
+  const chat = chatId ? findChatSummary(workspaces, chatId) : undefined
+  const workspace = workspaces.find(
+    (w) => w.id === (chat?.workspace_id ?? workspaceId),
+  )
+  return (
+    chat?.permission_profile ?? workspace?.permission_profile ?? globalProfile
+  )
+}
+
 interface ChatsState {
   /** Workspaces with nested chat summaries, straight from GET /api/workspaces. */
   workspaces: Workspace[]

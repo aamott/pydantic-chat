@@ -145,6 +145,38 @@ export interface McpServerPatch {
 }
 
 /* ------------------------------------------------------------------ */
+/* Files API contract (/api/files)                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * `GET`/`PUT /api/files` response — one UTF-8 workspace file for the
+ * CodeMirror viewer/editor. `path` is the workspace-root-relative POSIX
+ * spelling; `language` is a `@codemirror/language-data` name (`null` when
+ * unmapped → plain text).
+ *
+ * `version` is the backend's content-hash conflict token: echo it back as
+ * `if_match` on PUT to get a 409 when the file drifted since the read
+ * (save-time conflict detection — the cheap stand-in for fs watching).
+ */
+export interface WorkspaceFile {
+  content: string
+  language: string | null
+  size: number
+  path: string
+  version: string
+}
+
+/**
+ * `PUT /api/files` body (path + workspace travel as query params, matching
+ * the GET). `if_match` omitted/`null` skips the conflict guard — the
+ * deliberate overwrite path after a 409.
+ */
+export interface WorkspaceFileWrite {
+  content: string
+  if_match?: string | null
+}
+
+/* ------------------------------------------------------------------ */
 /* Models API contract (GET /api/models)                               */
 /* ------------------------------------------------------------------ */
 

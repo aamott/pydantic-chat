@@ -271,3 +271,241 @@ def test_tree_and_read_missing_workspace_path(client):
         ).status_code
         == 404
     )
+
+
+# --------------------------------------------------------------------- #
+# PUT /api/files — the writable viewer's save path                       #
+# --------------------------------------------------------------------- #
+
+
+def _put(client, path: str, body: dict, workspace_id: str, **params):
+    return client.put(
+        "/api/files",
+        params={"workspace_id": workspace_id, "path": path, **params},
+        json=body,
+        headers=AUTH,
+    )
+
+
+def test_write_file_requires_auth(client):
+    test_client, project = client
+    workspace_id = _workspace_id(test_client, project)
+    assert test_client.put("/api/files").status_code == 401
+    assert (
+        test_client.put(
+            "/api/files",
+            params={"workspace_id": workspace_id, "path": "README.md"},
+            json={"content": "x"},
+            headers={"Authorization": "Bearer wrong"},
+        ).status_code
+        == 401
+    )
+
+
+def test_read_file_returns_version(client):
+    """``version`` is the conflict token: same bytes -> same token."""
+    test_client, project = client
+    workspace_id = _workspace_id(test_client, project)
+    response = _get(
+        test_client, "/api/files", workspace_id=workspace_id, path="README.md"
+    )
+    assert response.status_code == 200
+    version = response.json()["version"]
+    assert isinstance(version, str) and version
+    again = _get(test_client, "/api/files", workspace_id=workspace_id, path="README.md")
+    assert again.json()["version"] == version
+    # A different file (different bytes) yields a different token.
+    other = _get(
+        test_client,
+        "/api/files",
+        workspace_id=workspace_id,
+        path="src/main.py",
+    )
+    assert other.json()["version"] != version
+
+
+def test_write_file_roundtrip_updates_content_and_stat(client):
+    test_client, project = client
+    workspace_id = _workspace_id(test_client, project)
+    before = _get(
+        test_client, "/api/files", workspace_id=workspace_id, path="README.md"
+    ).json()
+
+    response = _put(
+        test_client,
+        "README.md",
+        {"content": "# rewritten\n"},
+        workspace_id,
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["content"] == "# rewritten\n"
+    assert body["size"] == len(b"# rewritten\n")
+    assert body["path"] == "README.md"
+    assert body["language"] == "markdown"
+    assert body["version"] != before["version"]
+
+    # The file on disk and a fresh GET agree with the write response.
+    assert (project / "README.md").read_text() == "# rewritten\n"
+    fetched = _get(
+        test_client, "/api/files", workspace_id=workspace_id, path="README.md"
+    ).json()
+    assert fetched["content"] == "# rewritten\n"
+    assert fetched["version"] == body["version"]
+
+
+def test_write_file_accepts_absolute_in_workspace_path(client):
+    test_client, project = client
+    workspace_id = _workspace_id(test_client, project)
+    response = _put(
+        test_client,
+        str(project / "src" / "main.py"),
+        {"content": "print('v2')\n"},
+        workspace_id,
+    )
+    assert response.status_code == 200
+    assert response.json()["path"] == "src/main.py"
+    assert (project / "src" / "main.py").read_text() == "print('v2')\n"
+
+
+def test_write_file_rejects_paths_outside_root(client):
+    test_client, project = client
+    outside = project.parent / "outside.txt"
+    outside.write_text("nope\n")
+    workspace_id = _workspace_id(test_client, project)
+    for bad in ("../outside.txt", str(outside), "src/../../outside.txt"):
+        response = _put(test_client, bad, {"content": "pwned\n"}, workspace_id)
+        assert response.status_code == 403, bad
+    assert outside.read_text() == "nope\n"
+
+
+def test_write_file_rejects_symlink_escape(client):
+    test_client, project = client
+    outside = project.parent / "outside.txt"
+    outside.write_text("nope\n")
+    outside_dir = project.parent / "outside_dir"
+    outside_dir.mkdir(exist_ok=True)
+    (outside_dir / "evil.txt").write_text("nope\n")
+    os.symlink(outside, project / "link.txt")
+    os.symlink(outside_dir, project / "linkdir")
+    workspace_id = _workspace_id(test_client, project)
+    for bad in ("link.txt", "linkdir/evil.txt"):
+        response = _put(test_client, bad, {"content": "pwned\n"}, workspace_id)
+        assert response.status_code == 403, bad
+    assert outside.read_text() == "nope\n"
+    assert (outside_dir / "evil.txt").read_text() == "nope\n"
+
+
+def test_write_file_rejects_protected_paths(client):
+    test_client, project = client
+    workspace_id = _workspace_id(test_client, project)
+    for protected in (".env", "key.pem", "src/secrets.txt", ".git/config"):
+        response = _put(test_client, protected, {"content": "x"}, workspace_id)
+        assert response.status_code == 403, protected
+
+
+def test_write_file_missing_and_directory(client):
+    test_client, project = client
+    workspace_id = _workspace_id(test_client, project)
+    # Writes don't create files: the viewer only saves files it could read.
+    assert (
+        _put(test_client, "gone.txt", {"content": "x"}, workspace_id).status_code == 404
+    )
+    assert not (project / "gone.txt").exists()
+    assert _put(test_client, "src", {"content": "x"}, workspace_id).status_code == 400
+
+
+def test_write_file_rejects_nul_and_oversize(client):
+    test_client, project = client
+    workspace_id = _workspace_id(test_client, project)
+    assert (
+        _put(
+            test_client,
+            "README.md",
+            {"content": "a\x00b"},
+            workspace_id,
+        ).status_code
+        == 400
+    )
+    assert (
+        _put(
+            test_client,
+            "README.md",
+            {"content": "x" * (2 * 1024 * 1024 + 1)},
+            workspace_id,
+        ).status_code
+        == 413
+    )
+    assert (project / "README.md").read_text() == "# proj\n"
+
+
+def test_write_file_unknown_workspace_is_404(client):
+    test_client, _ = client
+    assert (
+        _put(
+            test_client, "README.md", {"content": "x"}, workspace_id="nope"
+        ).status_code
+        == 404
+    )
+
+
+def test_write_file_if_match_conflict(client):
+    """Save-time conflict guard: a stale ``if_match`` gets a 409."""
+    test_client, project = client
+    workspace_id = _workspace_id(test_client, project)
+    version = _get(
+        test_client, "/api/files", workspace_id=workspace_id, path="README.md"
+    ).json()["version"]
+
+    # The file moves under the open buffer (agent write, external edit).
+    (project / "README.md").write_text("# agent wrote this\n")
+
+    conflict = _put(
+        test_client,
+        "README.md",
+        {"content": "# user edits\n", "if_match": version},
+        workspace_id,
+    )
+    assert conflict.status_code == 409
+    # The 409 refuses the write — the agent's content survives.
+    assert (project / "README.md").read_text() == "# agent wrote this\n"
+
+    # A matching if_match still saves.
+    fresh = _get(
+        test_client, "/api/files", workspace_id=workspace_id, path="README.md"
+    ).json()["version"]
+    ok = _put(
+        test_client,
+        "README.md",
+        {"content": "# user edits\n", "if_match": fresh},
+        workspace_id,
+    )
+    assert ok.status_code == 200
+    assert (project / "README.md").read_text() == "# user edits\n"
+
+
+def test_write_file_without_if_match_overwrites(client):
+    """Omitting ``if_match`` skips the guard — the deliberate clobber path."""
+    test_client, project = client
+    workspace_id = _workspace_id(test_client, project)
+    (project / "README.md").write_text("# drifted\n")
+    response = _put(
+        test_client,
+        "README.md",
+        {"content": "# forced\n"},
+        workspace_id,
+    )
+    assert response.status_code == 200
+    assert (project / "README.md").read_text() == "# forced\n"
+
+
+def test_write_file_rejects_unexpected_body_keys(client):
+    test_client, project = client
+    workspace_id = _workspace_id(test_client, project)
+    response = _put(
+        test_client,
+        "README.md",
+        {"content": "x", "surprise": True},
+        workspace_id,
+    )
+    assert response.status_code == 422

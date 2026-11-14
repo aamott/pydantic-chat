@@ -1,25 +1,34 @@
 /**
- * Tests for FileViewer's `isDisplayedFile` — the predicate that decides
- * whether a fetch is a "silent" refresh of the file already on screen or a
- * fresh load.
+ * Tests for FileViewer's extracted pure helpers — `isDisplayedFile` (silent
+ * refresh vs fresh load) and `refetchOutcome` (what a completed fetch does
+ * to the buffer, including the dirty-drift case).
  *
- * Regression it guards: two workspaces containing the same relative path
- * (e.g. both have `src/main.ts`). Without the workspaceId in the check, a
- * workspace switch was treated as a silent refresh — fetch failures were
- * swallowed (the previous workspace's file stayed displayed with no error)
- * and identical content skipped the rebuild.
+ * Regression `isDisplayedFile` guards: two workspaces containing the same
+ * relative path (e.g. both have `src/main.ts`). Without the workspaceId in
+ * the check, a workspace switch was treated as a silent refresh — fetch
+ * failures were swallowed (the previous workspace's file stayed displayed
+ * with no error) and identical content skipped the rebuild.
+ *
+ * `refetchOutcome` guards the writable-viewer invariant: a focus refetch
+ * must never clobber unsaved edits — disk drift under a dirty buffer keeps
+ * the buffer and flags the header instead.
  *
  * The component itself mounts a real CodeMirror EditorView, which jsdom
- * can't do (no ResizeObserver / Range.getClientRects), so the decision is
+ * can't do (no ResizeObserver / Range.getClientRects), so the decisions are
  * extracted and tested here rather than through a rendered component.
  */
 import { describe, expect, it } from 'vitest'
-import { isDisplayedFile } from './FileViewer'
+import {
+  isDisplayedFile,
+  refetchOutcome,
+  type LoadedFile,
+} from './FileViewer'
 
-const loaded = {
+const loaded: LoadedFile = {
   workspaceId: 'ws-1',
   path: 'src/main.ts',
   content: 'const a = 1',
+  version: 'v1',
 }
 
 describe('isDisplayedFile', () => {
@@ -49,5 +58,41 @@ describe('isDisplayedFile', () => {
 
   it('is false when nothing is loaded yet', () => {
     expect(isDisplayedFile(null, 'ws-1', 'src/main.ts')).toBe(false)
+  })
+})
+
+describe('refetchOutcome', () => {
+  it('rebuilds for a different file', () => {
+    expect(
+      refetchOutcome(loaded, 'ws-1', 'src/other.ts', 'x', false),
+    ).toBe('rebuild')
+    expect(refetchOutcome(null, 'ws-1', 'src/main.ts', 'x', false)).toBe(
+      'rebuild',
+    )
+  })
+
+  it('keeps the view on identical content (clean or dirty)', () => {
+    // Dirty buffers stay dirty — identical disk content touches nothing.
+    expect(
+      refetchOutcome(loaded, 'ws-1', 'src/main.ts', 'const a = 1', false),
+    ).toBe('keep')
+    expect(
+      refetchOutcome(loaded, 'ws-1', 'src/main.ts', 'const a = 1', true),
+    ).toBe('keep')
+  })
+
+  it('rebuilds a clean buffer when the disk copy moved', () => {
+    expect(
+      refetchOutcome(loaded, 'ws-1', 'src/main.ts', 'const a = 2', false),
+    ).toBe('rebuild')
+  })
+
+  it('keeps a dirty buffer when the disk copy moved → drift flag', () => {
+    // The core writable-viewer guard: an agent/external write under an open
+    // dirty buffer must not clobber the user's edits; the stale version
+    // stays so the next save still 409s.
+    expect(
+      refetchOutcome(loaded, 'ws-1', 'src/main.ts', 'const a = 2', true),
+    ).toBe('drift')
   })
 })

@@ -1,8 +1,18 @@
 /**
- * Read-only CodeMirror 6 viewer for workspace files, fetched through the
- * backend (`GET /api/files?workspace_id&path`). Thin useRef/useEffect wrapper —
- * no React editor binding library. Language modes are lazy-loaded via
- * `@codemirror/language-data`; freshness for v1 is a re-fetch on window focus.
+ * CodeMirror 6 viewer/editor for workspace files, fetched and saved through
+ * the backend (`GET`/`PUT /api/files?workspace_id&path`). Thin
+ * useRef/useEffect wrapper — no React editor binding library. Language modes
+ * are lazy-loaded via `@codemirror/language-data`; freshness is a re-fetch
+ * on window focus.
+ *
+ * Editing: an explicit pencil toggle flips a Compartment between read-only
+ * and writable; unsaved edits mark the buffer dirty (header indicator +
+ * `ui.fileDirty` so file-switch/tab/panel-close can guard). Save is
+ * Ctrl/Cmd-S or the Save button → `PUT` with the read-time `version` echoed
+ * as `if_match` — a 409 means the file drifted (agent write, external edit)
+ * and the conflict banner offers reload / overwrite plus a disk→buffer diff.
+ * This save-time check is the story's chosen stand-in for fs watching: the
+ * tree and buffers never learn about agent writes in real time.
  */
 import { useEffect, useRef, useState } from 'react'
 import { minimalSetup } from 'codemirror'
@@ -16,6 +26,7 @@ import {
 import {
   Decoration,
   EditorView,
+  keymap,
   lineNumbers,
   type DecorationSet,
 } from '@codemirror/view'
@@ -27,7 +38,15 @@ import {
 } from '@codemirror/language'
 import { oneDarkHighlightStyle } from '@codemirror/theme-one-dark'
 import { languages } from '@codemirror/language-data'
+import { Pencil, Save, TriangleAlert, X } from 'lucide-react'
+import type { WorkspaceFile, WorkspaceFileWrite } from '@pydantic-chat/shared'
 import { apiFetch } from '../../lib/api'
+import { iconButtonClass } from '../../lib/ui'
+import { effectiveProfileId, useChatsStore } from '../../stores/chats'
+import { useModelsStore } from '../../stores/models'
+import { useProfilesStore } from '../../stores/profiles'
+import { useUiStore } from '../../stores/ui'
+import { unifiedLines, type DiffRow, type DiffRowKind } from './diff'
 
 /* ------------------------------------------------------------------ */
 /* Anchor-line highlight (the `#L<n>` target)                          */
@@ -122,22 +141,27 @@ const darkHighlight = (): Extension =>
     ? syntaxHighlighting(oneDarkHighlightStyle)
     : []
 
+/* Read-only vs writable — the two states `editCompartment` flips between. */
+const READ_ONLY_EXT: Extension = [
+  EditorState.readOnly.of(true),
+  EditorView.editable.of(false),
+]
+const WRITABLE_EXT: Extension = [
+  EditorState.readOnly.of(false),
+  EditorView.editable.of(true),
+]
+
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
 /* ------------------------------------------------------------------ */
 
-/** Contract of `GET /api/files` (backend route lands in a later story). */
-interface FileResponse {
-  content: string
-  language?: string
-  size: number
-}
-
 /** Identity of the file currently rendered in the editor (`loadedRef`). */
-interface LoadedFile {
+export interface LoadedFile {
   workspaceId: string
   path: string
   content: string
+  /** `WorkspaceFile.version` — echoed as `if_match` on save (409 guard). */
+  version: string
 }
 
 /**
@@ -160,11 +184,45 @@ export function isDisplayedFile(
   )
 }
 
+export type RefetchOutcome = 'rebuild' | 'keep' | 'drift'
+
+/**
+ * What a completed fetch should do to the on-screen buffer.
+ *
+ * - `rebuild` — a different file, or the disk copy moved under a clean one.
+ * - `keep` — identical content: skip the rebuild, preserve scroll.
+ * - `drift` — the file changed on disk while the buffer has unsaved edits:
+ *   the edits win (rebuilding would drop them) and the header flags it.
+ *   The read-time `version` is deliberately NOT updated, so the next save
+ *   still 409s and the conflict UI takes over.
+ */
+export function refetchOutcome(
+  loaded: LoadedFile | null,
+  workspaceId: string,
+  path: string,
+  newContent: string,
+  dirty: boolean,
+): RefetchOutcome {
+  if (loaded === null || !isDisplayedFile(loaded, workspaceId, path)) {
+    return 'rebuild'
+  }
+  if (loaded.content === newContent) return 'keep'
+  return dirty ? 'drift' : 'rebuild'
+}
+
 type ViewerState =
   | { status: 'no-workspace' }
   | { status: 'loading' }
   | { status: 'ready'; size: number; languageName: string | null }
   | { status: 'error'; message: string }
+
+/** A save-time 409 plus the fresh disk copy fetched to explain it. */
+interface SaveConflict {
+  /** Current on-disk copy; null when the refetch itself failed. */
+  disk: WorkspaceFile | null
+  /** disk → unsaved-buffer rows, snapshotted when the 409 arrived. */
+  rows: DiffRow[]
+}
 
 /** Map HTTP errors (403 outside-root / 404 / 413 too-big) to readable text. */
 async function describeError(res: Response): Promise<string> {
@@ -187,6 +245,8 @@ async function describeError(res: Response): Promise<string> {
       return detail ?? 'This file is outside the workspace root.'
     case 404:
       return detail ?? 'File not found in this workspace.'
+    case 409:
+      return detail ?? 'File changed on disk since it was read.'
     case 413:
       return detail ?? 'File is too large to preview.'
     default:
@@ -199,7 +259,7 @@ async function describeError(res: Response): Promise<string> {
  * then fall back to filename matching.
  */
 async function loadLanguage(
-  hint: string | undefined,
+  hint: string | null,
   path: string,
 ): Promise<{ support: Extension; name: string } | null> {
   const desc =
@@ -255,14 +315,196 @@ export function FileViewer({
   const viewRef = useRef<EditorView | null>(null)
   /** Doc currently in the editor — skips rebuilds on identical refetches. */
   const loadedRef = useRef<LoadedFile | null>(null)
+  /** Read-only ↔ writable switch, reconfigured instead of rebuilding. */
+  const editCompartmentRef = useRef<Compartment | null>(null)
+  /** Latest save closure for the Mod-S keymap (extensions are built once). */
+  const saveRef = useRef<() => void>(() => {})
+  const dirtyRef = useRef(false)
+  const savingRef = useRef(false)
   const [state, setState] = useState<ViewerState>({ status: 'loading' })
   /** Bumped on window focus → re-fetch. */
   const [refreshKey, setRefreshKey] = useState(0)
   /** Bumped after each editor rebuild → retriggers the line-scroll effect. */
   const [docVersion, setDocVersion] = useState(0)
+  const [editing, setEditing] = useState(false)
+  const [dirty, setDirty] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  /** A 409's fresh disk copy; non-null shows the conflict banner. */
+  const [conflict, setConflict] = useState<SaveConflict | null>(null)
+  /** A silent refetch saw the disk move while the buffer was dirty. */
+  const [drift, setDrift] = useState(false)
 
-  /* Fetch + (re)build the editor. Skips the rebuild (keeps scroll) when a
-   * focus refetch returns identical content. */
+  /* Read-only gating: the active chat's effective profile (chat → workspace
+   * → global) is resolved like ProfilePicker's, then looked up in the
+   * profile catalog. While the catalog is unloaded the lookup misses and
+   * editing stays enabled — the flag only hides a UX affordance; the agent's
+   * own writes remain governed server-side per the story. */
+  const workspaces = useChatsStore((s) => s.workspaces)
+  const activeChatId = useChatsStore((s) => s.activeChatId)
+  const globalProfile = useModelsStore((s) => s.globalProfile)
+  const ensureModelsLoaded = useModelsStore((s) => s.ensureLoaded)
+  const profiles = useProfilesStore((s) => s.profiles)
+  const ensureProfilesLoaded = useProfilesStore((s) => s.ensureLoaded)
+
+  useEffect(() => {
+    void ensureModelsLoaded()
+    void ensureProfilesLoaded()
+  }, [ensureModelsLoaded, ensureProfilesLoaded])
+
+  const profileId = effectiveProfileId(
+    workspaces,
+    activeChatId,
+    workspaceId,
+    globalProfile,
+  )
+  const canEdit =
+    !(profiles.find((p) => p.id === profileId)?.workspace_read_only ?? false)
+
+  /** Sync the dirty flag into local state, the ref, and the ui store. */
+  const markDirty = (value: boolean): void => {
+    dirtyRef.current = value
+    setDirty(value)
+    useUiStore.getState().setFileDirty(value)
+  }
+
+  /** (Re)create the EditorView inside `containerRef` for `content`. */
+  const buildEditor = (
+    content: string,
+    lang: { support: Extension; name: string } | null,
+  ): void => {
+    const parent = containerRef.current
+    if (!parent) return
+    const compartment = (editCompartmentRef.current ??= new Compartment())
+    viewRef.current?.destroy()
+    viewRef.current = new EditorView({
+      parent,
+      state: EditorState.create({
+        doc: content,
+        extensions: [
+          minimalSetup,
+          lineNumbers(),
+          foldGutter(),
+          bracketMatching(),
+          compartment.of(READ_ONLY_EXT),
+          /* Dirty = buffer differs from the read-time base content. */
+          EditorView.updateListener.of((update) => {
+            if (update.docChanged) {
+              const base = loadedRef.current?.content ?? ''
+              markDirty(update.state.doc.toString() !== base)
+            }
+          }),
+          /* Mod-S inside the editor; the window-level handler below covers
+           * a blurred editor (savingRef dedupes the double-fire). */
+          keymap.of([
+            {
+              key: 'Mod-s',
+              run: () => {
+                saveRef.current()
+                return true
+              },
+            },
+          ]),
+          anchorLineField,
+          viewerTheme,
+          highlightCompartment.of(darkHighlight()),
+          ...(lang ? [lang.support] : []),
+        ],
+      }),
+    })
+  }
+
+  /** Flip the editable compartment (and focus when entering edit mode). */
+  const setEditingMode = (on: boolean): void => {
+    setEditing(on)
+    const view = viewRef.current
+    const compartment = editCompartmentRef.current
+    if (view && compartment) {
+      view.dispatch({
+        effects: compartment.reconfigure(on ? WRITABLE_EXT : READ_ONLY_EXT),
+      })
+      if (on) view.focus()
+    }
+  }
+
+  /**
+   * PUT the buffer through the backend. `force` drops the `if_match` token
+   * (the conflict banner's "save anyway" — an unconditional overwrite).
+   */
+  const save = async (force: boolean): Promise<void> => {
+    const view = viewRef.current
+    const loaded = loadedRef.current
+    if (!view || !loaded || !workspaceId || savingRef.current) return
+    savingRef.current = true
+    setSaving(true)
+    setSaveError(null)
+    const params = new URLSearchParams({ workspace_id: workspaceId, path })
+    try {
+      const body: WorkspaceFileWrite = {
+        content: view.state.doc.toString(),
+        if_match: force ? null : loaded.version,
+      }
+      const res = await apiFetch(`/api/files?${params}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (res.status === 409 && !force) {
+        /* Pull the drifted disk copy so the banner can diff it against the
+         * buffer the user was trying to save. */
+        const fresh = await apiFetch(`/api/files?${params}`)
+        const disk = fresh.ok ? ((await fresh.json()) as WorkspaceFile) : null
+        setConflict({
+          disk,
+          rows: disk ? unifiedLines(disk.content, body.content) : [],
+        })
+        return
+      }
+      if (!res.ok) throw new Error(await describeError(res))
+      const file = (await res.json()) as WorkspaceFile
+      loadedRef.current = {
+        workspaceId,
+        path,
+        content: file.content,
+        version: file.version,
+      }
+      markDirty(false)
+      setConflict(null)
+      setDrift(false)
+      setState((s) =>
+        s.status === 'ready' ? { ...s, size: file.size } : s,
+      )
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : String(err))
+    } finally {
+      savingRef.current = false
+      setSaving(false)
+    }
+  }
+
+  useEffect(() => {
+    saveRef.current = () => {
+      void save(false)
+    }
+  })
+
+  /* Mod-S also reaches a blurred editor; savingRef dedupes the CM keymap's
+   * earlier handling of the same keystroke. */
+  useEffect(() => {
+    if (!editing) return
+    const onKey = (e: KeyboardEvent): void => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault()
+        saveRef.current()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [editing])
+
+  /* Fetch + (re)build the editor. `refetchOutcome` decides: identical
+   * content keeps the view (scroll preserved), drift under a dirty buffer
+   * keeps the edits and flags the header, anything else rebuilds. */
   useEffect(() => {
     if (!workspaceId) {
       setState({ status: 'no-workspace' })
@@ -279,14 +521,18 @@ export function FileViewer({
       const params = new URLSearchParams({ workspace_id: workspaceId, path })
       const res = await apiFetch(`/api/files?${params}`)
       if (!res.ok) throw new Error(await describeError(res))
-      const file = (await res.json()) as FileResponse
+      const file = (await res.json()) as WorkspaceFile
+      const outcome = refetchOutcome(
+        loadedRef.current,
+        workspaceId,
+        path,
+        file.content,
+        dirtyRef.current,
+      )
       const lang = await loadLanguage(file.language, path)
       if (cancelled) return
 
-      if (
-        isDisplayedFile(loadedRef.current, workspaceId, path) &&
-        loadedRef.current?.content === file.content
-      ) {
+      if (outcome === 'keep') {
         setState({
           status: 'ready',
           size: file.size,
@@ -294,29 +540,26 @@ export function FileViewer({
         })
         return
       }
+      if (outcome === 'drift') {
+        /* Disk moved under a dirty buffer — keep the edits and flag it.
+         * loadedRef (base content + version) stays stale on purpose. */
+        setDrift(true)
+        return
+      }
 
-      const parent = containerRef.current
-      if (!parent) return
-      viewRef.current?.destroy()
-      viewRef.current = new EditorView({
-        parent,
-        state: EditorState.create({
-          doc: file.content,
-          extensions: [
-            minimalSetup,
-            lineNumbers(),
-            foldGutter(),
-            bracketMatching(),
-            EditorState.readOnly.of(true),
-            EditorView.editable.of(false),
-            anchorLineField,
-            viewerTheme,
-            highlightCompartment.of(darkHighlight()),
-            ...(lang ? [lang.support] : []),
-          ],
-        }),
-      })
-      loadedRef.current = { workspaceId, path, content: file.content }
+      buildEditor(file.content, lang)
+      loadedRef.current = {
+        workspaceId,
+        path,
+        content: file.content,
+        version: file.version,
+      }
+      /* Fresh buffer: clear every edit-mode flag the previous file set. */
+      setEditing(false)
+      markDirty(false)
+      setConflict(null)
+      setDrift(false)
+      setSaveError(null)
       setState({
         status: 'ready',
         size: file.size,
@@ -338,6 +581,9 @@ export function FileViewer({
     return () => {
       cancelled = true
     }
+    /* Deps deliberately exclude the helper closures: markDirty/buildEditor/
+     * saveRef touch refs and setState only, so re-running on their identity
+     * would just churn. */
   }, [workspaceId, path, refreshKey])
 
   /* Re-fetch when the window regains focus (v1 freshness). */
@@ -368,40 +614,162 @@ export function FileViewer({
   }, [])
 
   /* Destroy the editor on unmount (rebuilds destroy the previous instance
-   * inside the load effect instead, so identical-content refetches keep it). */
+   * inside buildEditor instead, so identical-content refetches keep it). */
   useEffect(
     () => () => {
       viewRef.current?.destroy()
       viewRef.current = null
       loadedRef.current = null
+      useUiStore.getState().setFileDirty(false)
     },
     [],
   )
 
+  /** Conflict banner's "Reload": drop the buffer, refetch into a fresh view. */
+  const reloadFromDisk = (): void => {
+    loadedRef.current = null // forces 'rebuild' in the load effect
+    markDirty(false)
+    setConflict(null)
+    setDrift(false)
+    setRefreshKey((k) => k + 1)
+  }
+
+  /** "Stop editing": discard the buffer back to the read-time base. */
+  const discardEdits = (): void => {
+    if (
+      dirtyRef.current &&
+      !window.confirm(`Discard unsaved changes to ${path}?`)
+    ) {
+      return
+    }
+    const view = viewRef.current
+    const loaded = loadedRef.current
+    if (view && loaded) {
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: loaded.content },
+      })
+    }
+    markDirty(false)
+    setConflict(null)
+    setEditingMode(false)
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* Header: path + file meta */}
+      {/* Header: path + file meta + edit affordances */}
       <div className="flex h-8 shrink-0 items-center justify-between gap-3 border-b border-subtle px-3">
-        <span
-          className="truncate font-mono text-xs text-secondary"
-          title={path}
-        >
+        <span className="truncate font-mono text-xs text-secondary" title={path}>
           {path}
         </span>
-        {state.status === 'ready' && (
-          <span className="shrink-0 text-xs text-faint">
-            {state.languageName ?? 'Plain text'} · {formatSize(state.size)} ·
-            read-only
-          </span>
-        )}
+        <span className="flex shrink-0 items-center gap-1.5">
+          {state.status === 'ready' && (
+            <span className="text-xs text-faint">
+              {state.languageName ?? 'Plain text'} · {formatSize(state.size)} ·{' '}
+              {editing ? (
+                dirty ? (
+                  <span className="text-warning">modified</span>
+                ) : (
+                  'editing'
+                )
+              ) : (
+                'read-only'
+              )}
+            </span>
+          )}
+          {state.status === 'ready' && canEdit && !editing && (
+            <button
+              type="button"
+              onClick={() => setEditingMode(true)}
+              aria-label="Edit file"
+              title="Edit file"
+              className={iconButtonClass()}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          )}
+          {state.status === 'ready' && editing && (
+            <>
+              <button
+                type="button"
+                onClick={() => void save(false)}
+                disabled={!dirty || saving}
+                aria-label="Save file"
+                title="Save (Ctrl/Cmd+S)"
+                className={iconButtonClass()}
+              >
+                <Save className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={discardEdits}
+                aria-label="Stop editing"
+                title="Stop editing (discards unsaved changes)"
+                className={iconButtonClass()}
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </>
+          )}
+        </span>
       </div>
+
+      {/* Save-time conflict: file drifted since the buffer's read. */}
+      {conflict && (
+        <div className="shrink-0 border-b border-subtle bg-danger-soft px-3 py-1.5 text-xs">
+          <div className="flex items-center gap-1.5 text-danger">
+            <TriangleAlert className="h-3.5 w-3.5 shrink-0" />
+            <span className="font-medium">
+              Changed on disk since you opened it.
+            </span>
+            <span className="ml-auto flex gap-1">
+              <button
+                type="button"
+                onClick={reloadFromDisk}
+                className="rounded border border-subtle bg-surface px-2 py-0.5 text-secondary hover-bg-raised"
+              >
+                Reload
+              </button>
+              <button
+                type="button"
+                onClick={() => void save(true)}
+                className="rounded border border-subtle bg-surface px-2 py-0.5 text-danger hover-bg-raised"
+              >
+                Save anyway
+              </button>
+            </span>
+          </div>
+          {conflict.disk !== null && conflict.rows.length > 0 && (
+            <details className="mt-1">
+              <summary className="cursor-pointer text-muted">
+                Diff: disk → your edits
+              </summary>
+              <div className="mt-1 max-h-60 overflow-auto rounded border border-subtle bg-surface font-mono">
+                {conflict.rows.map((row, i) => (
+                  <ConflictRow key={i} row={row} />
+                ))}
+              </div>
+            </details>
+          )}
+        </div>
+      )}
+
+      {/* Non-blocking save failure + drift notice. */}
+      {saveError && (
+        <div className="shrink-0 border-b border-subtle bg-danger-soft px-3 py-1 text-xs text-danger">
+          Couldn't save: {saveError}
+        </div>
+      )}
+      {drift && !conflict && (
+        <div className="shrink-0 border-b border-subtle px-3 py-1 text-xs text-warning">
+          This file changed on disk; your unsaved edits are kept. Saving will
+          ask what to do.
+        </div>
+      )}
 
       {/* Editor host + status overlays */}
       <div className="relative min-h-0 flex-1">
         <div ref={containerRef} className="h-full" />
-        {state.status === 'loading' && (
-          <Overlay>Loading…</Overlay>
-        )}
+        {state.status === 'loading' && <Overlay>Loading…</Overlay>}
         {state.status === 'no-workspace' && (
           <Overlay>Open a workspace to preview files.</Overlay>
         )}
@@ -409,6 +777,40 @@ export function FileViewer({
           <Overlay tone="error">{state.message}</Overlay>
         )}
       </div>
+    </div>
+  )
+}
+
+const CONFLICT_ROW_TONE: Record<DiffRowKind, string> = {
+  ctx: 'diff-ctx',
+  add: 'diff-add',
+  del: 'diff-del',
+  gap: 'diff-gap',
+}
+
+const CONFLICT_ROW_SIGN: Record<DiffRowKind, string> = {
+  ctx: ' ',
+  add: '+',
+  del: '−',
+  gap: '⋮',
+}
+
+/** One row of the conflict banner's disk→buffer unified diff. */
+function ConflictRow({
+  row,
+}: Readonly<{ row: DiffRow }>): React.JSX.Element {
+  return (
+    <div className={`flex items-baseline px-1 ${CONFLICT_ROW_TONE[row.kind]}`}>
+      <span className="w-8 shrink-0 select-none pr-1 text-right text-faint">
+        {row.oldNo ?? ''}
+      </span>
+      <span className="w-8 shrink-0 select-none pr-1 text-right text-faint">
+        {row.newNo ?? ''}
+      </span>
+      <span className="w-4 shrink-0 select-none text-center">
+        {CONFLICT_ROW_SIGN[row.kind]}
+      </span>
+      <span className="min-w-0 whitespace-pre-wrap break-all">{row.text}</span>
     </div>
   )
 }
