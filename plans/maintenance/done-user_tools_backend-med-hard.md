@@ -76,6 +76,15 @@ Research: `docs/research/user-tools-harness-apis.md` (exact APIs),
   effect next run). Add `**/tools` to `PROTECTED_PATTERNS` in
   `app/api/files.py`? Consider — but note `.devin/skills` is unprotected
   today; either way, document the choice in the story.
+  **Decision: NOT added.** `PROTECTED_PATTERNS` only governs the HTTP
+  `/api/files` surface; the agent's `FileSystem` capability has its own
+  pattern lists, so protecting the viewer wouldn't touch the actual threat
+  (the model rewriting its tools mid-session). A bare `**/tools` glob would
+  also blind the viewer to every ordinary `tools/` source dir in user
+  projects — real collateral for no containment gain. The real control is
+  `ApprovalRequiredToolset` gating under every non-bypass profile, which is
+  implemented. Dedicated `/api/user-tools/source` routes handle tool-file
+  edits with their own tighter jails (tool-dir-only shapes).
 - Workspace tool files live under the workspace root so they inherit
   `_resolve_workspace_file` confinement for the API read/write path; global
   tools need their own lexical+resolved jail under `data_dir()/tools`.
@@ -109,3 +118,53 @@ Research: `docs/research/user-tools-harness-apis.md` (exact APIs),
 - `app/mcp_servers.py` — registry + capabilities template
 - `app/api/profiles.py` — `_CATALOG_GROUPS`, skills-dir precedent
 - `app/api/files.py` — confinement + `PROTECTED_PATTERNS`
+
+## What landed
+
+- `app/user_tools.py` — `UserToolSpec` registry triple
+  (`load_/save_/parse_user_tools`, `USER_TOOLS_KEY`), `WORKSPACE_TOOL_DIRS`
+  = `(.devin/tools, .agents/tools, .claude/tools)`, discovery with
+  workspace-shadows-global basename precedence, `ast`-only
+  `parse_user_tool_file`, digest-keyed `sys.modules` exec loader
+  (`load_user_tool_module` — own implementation; harness
+  `load_capability_instance` requires an `AbstractCapability` subclass so it
+  did not fit plain functions), and `build_user_tool_capabilities(specs,
+  workspace_root, gate)` → one `Toolset(FunctionToolset(id='user_tools')
+  .prefixed('user'))`, `ApprovalRequiredToolset`-wrapped when gating.
+  Duplicate function names: first file in discovery precedence wins.
+- `app/api/user_tools.py` — `GET/POST/PATCH /api/user-tools`,
+  `GET/PUT /api/user-tools/source`, `DELETE /api/user-tools`.
+- `app/api/schemas.py` — `UserToolSpec`/`UserToolPatch`/`UserToolCreate`/
+  `UserToolOut` (+ `UserToolFunctionOut`, `SkippedUserToolFunctionOut`)/
+  `UserToolSourceIn`/`UserToolSourceOut`; `ToolCatalogEntry.group` gained
+  `"user"`.
+- `app/agent/factory.py` — `*build_user_tool_capabilities(...)` spread right
+  after the MCP spread (lazy import, `gate=approval_mode != "bypass"`).
+- `app/api/profiles.py` — `GET /api/tool-catalog` appends `group="user"`
+  entries (`user_<func>`, `prefix=False`) for enabled, non-shadowed,
+  legally-named functions; workspace dirs scanned when `workspace_id` given.
+- `app/main.py` — router registered behind the bearer auth.
+- `packages/shared/src/index.ts` — `ToolGroup` union gained `'user'`.
+- `tests/test_user_tools.py` — 37 tests; full suite 287 passed, ruff clean.
+
+### Contract notes for the frontend agent
+
+- `GET /api/user-tools` rows: `{key, name, origin, rel_path, enabled,
+  docstring, functions[], skipped_functions[], error, skipped_reason}`.
+  `skipped_functions` (additive vs. story spec) reports public defs with
+  illegal tool names; `skipped_reason` covers shadowed / no-public-functions.
+- `PATCH /api/user-tools` takes `{key, enabled}` on the collection route
+  (keys contain `/` so no `{key}` path param) and returns
+  `list[UserToolSpec]` (the registry, not the listing). Unknown-but-well-
+  formed keys upsert a dormant flag row rather than 404ing.
+- `POST /api/user-tools` returns the refreshed `list[UserToolOut]`; filename
+  must match `^[a-z0-9_][a-z0-9_-]*\.py$`.
+- `GET/PUT /api/user-tools/source` and `DELETE /api/user-tools` take `key`
+  (+ `workspace_id` for `origin="workspace"` — 400 without it). Source
+  writes are create-capable but jailed to `*.py` files directly inside a
+  recognized tool dir (`global:x.py` or `workspace:<tooldir>/x.py`).
+- `DELETE` is 204 when the file is gone but a registry row exists (prunes
+  it); 404 only when neither exists.
+- Workspace tool keys are workspace-agnostic: `workspace:.devin/tools/x.py`
+  is one flag applied in whichever workspace that rel-path exists (no
+  per-workspace mask in v1).

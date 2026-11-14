@@ -18,6 +18,7 @@ from app.api import (
     profiles,
     resume,
     settings,
+    user_tools,
     workspaces,
 )
 from app.db import ChatStore
@@ -77,6 +78,7 @@ def create_app() -> FastAPI:
     app.include_router(resume.router, dependencies=[Depends(_check_auth)])
     app.include_router(settings.router, dependencies=[Depends(_check_auth)])
     app.include_router(mcp.router, dependencies=[Depends(_check_auth)])
+    app.include_router(user_tools.router, dependencies=[Depends(_check_auth)])
     app.include_router(models.router, dependencies=[Depends(_check_auth)])
     app.include_router(profiles.router, dependencies=[Depends(_check_auth)])
 

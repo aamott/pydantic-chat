@@ -55,6 +55,7 @@ export const TOOL_GROUP_LABELS: Record<ToolGroup, string> = {
   shell: 'Shell',
   planning: 'Planning',
   mcp: 'MCP servers',
+  user: 'User tools',
 }
 
 /**

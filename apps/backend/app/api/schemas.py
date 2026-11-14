@@ -248,11 +248,13 @@ class ToolCatalogEntry(BaseModel):
     ``group`` identifies the source capability (or ``"mcp"`` for the
     ``{server}_*`` prefix entries, flagged by ``prefix=True`` — those match a
     profile's ``tool_prefixes``, everything else matches ``tools``).
+    ``"user"`` rows are exact ``user_<func>`` names — one per enabled,
+    legally-named function in a discovered user-tool file.
     """
 
     name: str
     description: str
-    group: Literal["filesystem", "shell", "planning", "mcp"]
+    group: Literal["filesystem", "shell", "planning", "mcp", "user"]
     prefix: bool = False
 
 
@@ -353,6 +355,118 @@ class MCPServerPatch(BaseModel):
     url: str | None = None
     headers: dict[str, str] | None = None
     enabled: bool | None = None
+
+
+class UserToolSpec(BaseModel):
+    """One registered user-tool file — a row of the ``user_tools`` settings list.
+
+    The registry stores *enablement*, not source: files are discovered on disk
+    (``data_dir()/tools`` for ``origin="global"``, ``<workspace>/.devin/tools``
+    & co. for ``origin="workspace"``) and this row merely remembers whether a
+    given ``key`` is enabled. ``key`` is ``"{origin}:{rel_path}"`` — a
+    workspace key is not per-workspace; it applies to any workspace that has
+    a tool file at that rel_path (v1 has no per-workspace mask).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    """Display name — the file stem (``greet`` for ``greet.py``)."""
+    origin: Literal["global", "workspace"]
+    rel_path: str = Field(min_length=1)
+    enabled: bool = True
+
+
+class UserToolPatch(BaseModel):
+    """``PATCH /api/user-tools`` body — the enabled toggle for one file.
+
+    ``key`` (``"{origin}:{rel_path}"``) must be well-formed; the row is
+    upserted even when the file is not currently discoverable, so a flag for
+    a workspace file survives the workspace not being loaded right now.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(min_length=1)
+    enabled: bool
+
+
+class UserToolCreate(BaseModel):
+    """``POST /api/user-tools`` body — create a tool file on disk.
+
+    ``origin="global"`` writes under ``data_dir()/tools``;
+    ``origin="workspace"`` writes under ``<workspace>/.devin/tools`` (the
+    canonical workspace tool dir) and requires ``workspace_id``. ``filename``
+    is a bare ``*.py`` name — no directories. ``source`` defaults to a
+    starter template when omitted.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    origin: Literal["global", "workspace"]
+    workspace_id: str | None = None
+    filename: str = Field(min_length=1)
+    source: str | None = None
+
+
+class UserToolFunctionOut(BaseModel):
+    """One public function ast-discovered in a user-tool file."""
+
+    name: str
+    docstring: str | None = None
+
+
+class SkippedUserToolFunctionOut(BaseModel):
+    """A public function that cannot become a tool (illegal name), and why."""
+
+    name: str
+    reason: str
+
+
+class UserToolOut(BaseModel):
+    """One discovered user-tool file in the ``GET /api/user-tools`` response.
+
+    ``functions`` lists the public defs that become ``user_<name>`` tools;
+    ``skipped_functions`` reports public defs whose names violate provider
+    tool-name rules. ``error`` carries an ast-parse failure; ``skipped_reason``
+    explains a file that contributes no tools at all (shadowed by a
+    higher-precedence file of the same name, no usable functions).
+    """
+
+    key: str
+    name: str
+    origin: Literal["global", "workspace"]
+    rel_path: str
+    enabled: bool
+    docstring: str | None = None
+    functions: list[UserToolFunctionOut] = Field(default_factory=list)
+    skipped_functions: list[SkippedUserToolFunctionOut] = Field(default_factory=list)
+    error: str | None = None
+    skipped_reason: str | None = None
+
+
+class UserToolSourceOut(BaseModel):
+    """``GET``/``PUT /api/user-tools/source`` response — one file's text."""
+
+    source: str
+
+
+class UserToolSourceIn(BaseModel):
+    """``PUT /api/user-tools/source`` body — replace (or create) a tool file.
+
+    ``key`` is ``"{origin}:{rel_path}"``; workspace-origin keys require
+    ``workspace_id`` to locate the workspace root. ``rel_path`` must name a
+    ``*.py`` file directly inside a recognized tool dir — writes are jailed
+    there (lexical + resolved containment), so ``../`` and symlink escapes
+    are rejected.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(min_length=1)
+    workspace_id: str | None = None
+    source: str
 
 
 class SettingValueIn(BaseModel):

@@ -272,8 +272,8 @@ export interface ToolProfileInput {
   skills: string[] | null
 }
 
-/** Capability-group a catalog tool belongs to ('mcp' = a `{server}_*` prefix row). */
-export type ToolGroup = 'filesystem' | 'shell' | 'planning' | 'mcp'
+/** Capability-group a catalog tool belongs to ('mcp' = a `{server}_*` prefix row, 'user' = a `user_<func>` tool). */
+export type ToolGroup = 'filesystem' | 'shell' | 'planning' | 'mcp' | 'user'
 
 /**
  * One selectable item in `GET /api/tool-catalog`. Builtin tools match a

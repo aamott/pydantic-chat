@@ -428,6 +428,10 @@ def build_run_kwargs(
         parse_mcp_servers,
     )
 
+    # Same lazy-import shape as the MCP layer — app.user_tools ->
+    # app.api.schemas -> app.db. A build with no tool files pays one dir scan.
+    from app.user_tools import build_user_tool_capabilities, parse_user_tools
+
     capabilities: list[AbstractCapability] = [
         LocalWorkspace(root, read_only=profile.workspace_read_only),
         *_profile_capabilities(
@@ -445,6 +449,16 @@ def build_run_kwargs(
                 # (workspaces.mcp_overrides, merged in by _run_settings).
                 parse_mcp_mask(_setting(chat_settings, "mcp_overrides")),
             ),
+            gate=profile.approval_mode != "bypass",
+        ),
+        # User-defined tools: plain functions from data_dir()/tools + the
+        # workspace tool dirs, exposed as `user_<name>` through a single
+        # prefixed FunctionToolset. `Permissions` can't see plain tools
+        # either, so the same ApprovalRequiredToolset gate applies. A file
+        # that fails to exec warns and is skipped — never a run crash.
+        *build_user_tool_capabilities(
+            parse_user_tools(_setting(chat_settings, "user_tools")),
+            workspace_root=root,
             gate=profile.approval_mode != "bypass",
         ),
         _planning_capability(_setting(chat_settings, "chat_id")),

@@ -44,6 +44,12 @@ from app.profiles import (
     system_skills,
     workspace_skills,
 )
+from app.user_tools import (
+    discover_user_tool_files,
+    enabled_flags,
+    load_user_tools,
+    parse_user_tool_file,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -189,6 +195,7 @@ async def tool_catalog(
         for name in names
     ]
     specs = await load_mcp_servers(store)
+    workspace_root: Path | None = None
     if workspace_id is not None:
         workspace = await store.get_workspace(workspace_id)
         if workspace is None:
@@ -197,6 +204,8 @@ async def tool_catalog(
                 detail=f"No workspace named {workspace_id!r}",
             )
         specs = apply_mcp_mask(specs, workspace.mcp_overrides)
+        if Path(workspace.path).is_dir():
+            workspace_root = Path(workspace.path)
     for spec in specs:
         if spec.enabled:
             entries.append(
@@ -207,6 +216,23 @@ async def tool_catalog(
                     prefix=True,
                 )
             )
+    # User tools: one exact-name entry per enabled, legally-named function —
+    # ast-parsed only (importing would exec user code on a settings load).
+    tool_flags = enabled_flags(await load_user_tools(store))
+    for file in discover_user_tool_files(workspace_root):
+        if file.shadowed_by is not None or not tool_flags.get(file.key, True):
+            continue
+        parsed = parse_user_tool_file(file.path)
+        for fn in parsed.functions:
+            if fn.legal:
+                entries.append(
+                    ToolCatalogEntry(
+                        name=f"user_{fn.name}",
+                        description=fn.docstring
+                        or f"User-defined tool from {file.rel_path}",
+                        group="user",
+                    )
+                )
     return entries
 
 
