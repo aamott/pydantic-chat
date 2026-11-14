@@ -333,6 +333,7 @@ export function ModelPicker({
                 onKeyDown={onSearchKeyDown}
                 placeholder="Filter models…"
                 aria-label="Filter models"
+                aria-controls="model-picker-list"
                 aria-activedescendant={
                   visibleRows.length > 0
                     ? `model-picker-option-${activeIndex}`
@@ -355,12 +356,12 @@ export function ModelPicker({
           </div>
 
           <div
-            role="listbox"
+            id="model-picker-list"
             // Programmatically focusable for the aria-activedescendant
             // pattern — keyboard nav lives on the search input, so the
-            // listbox stays out of the tab order (S6852).
+            // container stays out of the tab order. Plain element with
+            // native button rows: no listbox/option roles (S6852).
             tabIndex={-1}
-            aria-label="Chat model"
             onKeyDown={onListKeyDown}
             onMouseLeave={scheduleHide}
             className="max-h-80 overflow-y-auto p-1"
@@ -460,8 +461,7 @@ function ModelRow({
       id={`model-picker-option-${index}`}
       ref={(el) => registerRef(index, el)}
       type="button"
-      role="option"
-      aria-selected={selected}
+      aria-current={selected}
       onClick={() => onSelect(row)}
       onMouseEnter={(e) => onActivate(row, e.currentTarget, index)}
       onFocus={(e) => onActivate(row, e.currentTarget, index)}

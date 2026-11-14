@@ -4,7 +4,7 @@
  * `apiJson` seam so a selection's PATCH body can be asserted without a
  * backend.
  */
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ModelProviderGroup } from '@pydantic-chat/shared'
 import { apiJson } from '../../lib/api'
@@ -66,6 +66,14 @@ function openPicker(): void {
   )
 }
 
+/** Model rows inside the open popover — the dialog's buttons minus the
+ *  clear-filter control, which only renders while the filter is non-empty. */
+function pickerRows(): HTMLElement[] {
+  return within(screen.getByRole('dialog'))
+    .queryAllByRole('button')
+    .filter((el) => el.getAttribute('aria-label') !== 'Clear model filter')
+}
+
 describe('ModelPicker', () => {
   beforeEach(() => {
     apiJsonMock.mockReset()
@@ -86,9 +94,8 @@ describe('ModelPicker', () => {
     render(<ModelPicker chatId="chat-1" />)
     openPicker()
 
-    const listbox = screen.getByRole('listbox', { name: 'Chat model' })
-    expect(listbox).toBeTruthy()
-    expect(screen.getAllByRole('option')).toHaveLength(3)
+    expect(screen.getByRole('dialog')).toBeTruthy()
+    expect(pickerRows()).toHaveLength(3)
     const input = screen.getByRole('textbox', { name: 'Filter models' })
     expect(document.activeElement).toBe(input)
   })
@@ -99,19 +106,19 @@ describe('ModelPicker', () => {
     const input = screen.getByRole('textbox', { name: 'Filter models' })
 
     fireEvent.change(input, { target: { value: 'opus' } })
-    let options = screen.getAllByRole('option')
+    let options = pickerRows()
     expect(options).toHaveLength(1)
     expect(options[0].textContent).toContain('Claude Opus 4.5')
 
     // Provider labels match too — 'openai' leaves only the GPT row.
     fireEvent.change(input, { target: { value: 'openai' } })
-    options = screen.getAllByRole('option')
+    options = pickerRows()
     expect(options).toHaveLength(1)
     expect(options[0].textContent).toContain('GPT 5.2')
 
     // Nothing matches → the empty-state message.
     fireEvent.change(input, { target: { value: 'zzz' } })
-    expect(screen.queryAllByRole('option')).toHaveLength(0)
+    expect(pickerRows()).toHaveLength(0)
     expect(screen.getByText('No models match.')).toBeTruthy()
   })
 
@@ -138,7 +145,7 @@ describe('ModelPicker', () => {
   it('clicking a row selects it directly', () => {
     render(<ModelPicker chatId="chat-1" />)
     openPicker()
-    fireEvent.click(screen.getByRole('option', { name: /GPT 5\.2/ }))
+    fireEvent.click(screen.getByRole('button', { name: /GPT 5\.2/ }))
 
     expect(lastPatchBody()).toEqual({
       model: 'openai:gpt-5.2',
