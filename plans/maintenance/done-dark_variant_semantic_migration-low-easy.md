@@ -14,3 +14,10 @@
 
 - `apps/desktop/src/renderer/src/styles/index.css` — semantic classes + `dark` custom variant
 - `apps/desktop/src/renderer/src/features/settings/**` — grep `dark:` for sites
+
+## Resolution
+
+Superseded — implemented more comprehensively by commits 836ad53 (semantic
+theme system + app-wide migration), 0fc25d4 (settings:theme live IPC),
+e3ffbc7 (review fixes: CSS layering, dedupe, bootstrap). Zero `dark:`
+same-property pairs remain in src/.
