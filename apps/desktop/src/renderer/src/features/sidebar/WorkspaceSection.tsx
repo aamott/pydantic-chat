@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import type { Workspace } from '@pydantic-chat/shared'
 import { useChatsStore } from '../../stores/chats'
+import { useUiStore } from '../../stores/ui'
 import { pathBasename } from '../../lib/paths'
 import { confirmBannerClass, iconButtonClass } from '../../lib/ui'
 import { ChatList } from './ChatList'
@@ -37,7 +38,9 @@ export function WorkspaceSection({
   const createChat = useChatsStore((s) => s.createChat)
   const deleteWorkspace = useChatsStore((s) => s.deleteWorkspace)
 
-  const [open, setOpen] = useState(true)
+  /* Expanded state persists per workspace in the ui store. */
+  const open = useUiStore((s) => s.workspaceOpen[workspace.id] ?? true)
+  const toggleWorkspaceOpen = useUiStore((s) => s.toggleWorkspaceOpen)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
 
   const name = workspace.display_name || pathBasename(workspace.path)
@@ -84,7 +87,7 @@ export function WorkspaceSection({
       >
         <button
           type="button"
-          onClick={() => setOpen((v) => !v)}
+          onClick={() => toggleWorkspaceOpen(workspace.id)}
           aria-expanded={open}
           aria-label={`Workspace ${name}`}
           title={workspace.path}

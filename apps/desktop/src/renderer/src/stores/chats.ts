@@ -24,6 +24,7 @@ import {
   makeChat,
   type AppChat,
 } from '../lib/transport'
+import { useUiStore } from './ui'
 
 /**
  * Registry of live `Chat` instances keyed by chat id. Non-reactive on
@@ -302,6 +303,9 @@ export const useChatsStore = create<ChatsState>()((set, get) => {
     createWorkspace: async () => {
       const path = await window.api.pickWorkspace()
       if (!path) return // dialog cancelled
+      // Switching to a new workspace strands a dirty File tab buffer — ask
+      // before the selection commits (same guard as selectWorkspace).
+      if (!useUiStore.getState().guardWorkspaceSwitch()) return
       try {
         const workspace = await apiJson<Workspace>('/api/workspaces', {
           method: 'POST',
@@ -553,6 +557,16 @@ export const useChatsStore = create<ChatsState>()((set, get) => {
       const workspace = get().workspaces.find((w) =>
         (w.chats ?? []).some((c) => c.id === chatId),
       )
+      /* Cross-workspace chat selection switches the File tab's workspace —
+       * a dirty buffer would be stranded, so confirm first. Declining
+       * aborts the whole selection. */
+      if (
+        workspace &&
+        workspace.id !== get().activeWorkspaceId &&
+        !useUiStore.getState().guardWorkspaceSwitch()
+      ) {
+        return
+      }
       ensureChat(chatId)
       try {
         await hydrateChat(chatId)
@@ -595,6 +609,8 @@ export const useChatsStore = create<ChatsState>()((set, get) => {
     selectWorkspace: async (workspaceId) => {
       const workspace = get().workspaces.find((w) => w.id === workspaceId)
       if (!workspace) return
+      // A dirty File tab buffer dies on workspace switch — confirm first.
+      if (!useUiStore.getState().guardWorkspaceSwitch()) return
       set({ activeWorkspaceId: workspaceId })
       await activateWorkspaceChat(workspace)
     },

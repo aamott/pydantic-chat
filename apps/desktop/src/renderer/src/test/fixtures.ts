@@ -15,6 +15,7 @@ import type {
 import { useChatsStore } from '../stores/chats'
 import { useModelsStore } from '../stores/models'
 import { useProfilesStore } from '../stores/profiles'
+import { useUiStore } from '../stores/ui'
 
 export function chatSummary(overrides: Partial<ChatSummary> = {}): ChatSummary {
   return {
@@ -101,4 +102,7 @@ export function seedStores(overrides: {
     loaded: true,
     error: null,
   })
+  /* The Composer's draft lives in the ui store — clear it so text never
+   * leaks between tests. */
+  useUiStore.setState({ drafts: {} })
 }

@@ -21,6 +21,7 @@ import {
   type MentionQuery,
 } from '../../lib/mentions'
 import type { FlatFile } from '../../lib/workspaceFiles'
+import { useUiStore } from '../../stores/ui'
 import { AttachPicker } from './AttachPicker'
 import { MentionList } from './MentionList'
 import { ModelPicker } from './ModelPicker'
@@ -53,7 +54,12 @@ export function Composer({
   onStop,
   disabled,
 }: Readonly<ComposerProps>): React.JSX.Element {
-  const [text, setText] = useState('')
+  /* The draft lives in the ui store keyed by chatId (persisted), so text
+   * survives chat switches and restarts — and can't bleed into a different
+   * chat's composer the way a local useState would. */
+  const text = useUiStore((s) => s.drafts[chatId] ?? '')
+  const setDraft = useUiStore((s) => s.setDraft)
+  const setText = (value: string): void => setDraft(chatId, value)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const bubbleRef = useRef<HTMLDivElement>(null)
   const busy = status === 'submitted' || status === 'streaming'
@@ -181,7 +187,7 @@ export function Composer({
     const el = textareaRef.current
     const snippet = `${markdown} `
     if (!el) {
-      setText((prev) => prev + snippet)
+      setText(text + snippet)
       return
     }
     const start = el.selectionStart ?? text.length

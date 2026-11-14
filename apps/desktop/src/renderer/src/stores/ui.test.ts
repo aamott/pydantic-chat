@@ -18,6 +18,10 @@ function seed(overrides: Partial<ReturnType<typeof useUiStore.getState>> = {}) {
     line: null,
     terminalTarget: null,
     fileDirty: false,
+    openFiles: {},
+    drafts: {},
+    workspaceOpen: {},
+    currentWorkspaceId: 'ws-1',
     ...overrides,
   })
 }
@@ -124,5 +128,89 @@ describe('closePanel / togglePanel', () => {
     useUiStore.getState().togglePanel() // closed → opens without asking
     expect(confirm).toHaveBeenCalledTimes(1) // only the close asked
     expect(useUiStore.getState().rightPanelOpen).toBe(true)
+  })
+})
+
+describe('openFiles per-workspace map', () => {
+  it('openFile records the file under the current workspace', () => {
+    useUiStore.getState().openFile('src/b.ts', 10)
+    const s = useUiStore.getState()
+    expect(s.openFiles['ws-1']).toEqual({ path: 'src/b.ts', line: 10 })
+  })
+
+  it('setWorkspaceContext stashes the outgoing file and restores the incoming one', () => {
+    seed({
+      filePath: 'ws1-file.ts',
+      line: 7,
+      openFiles: { 'ws-2': { path: 'ws2-file.ts', line: 3 } },
+    })
+    useUiStore.getState().setWorkspaceContext('ws-2')
+    const s = useUiStore.getState()
+    expect(s.filePath).toBe('ws2-file.ts')
+    expect(s.line).toBe(3)
+    // Outgoing file stashed back under ws-1.
+    expect(s.openFiles['ws-1']).toEqual({ path: 'ws1-file.ts', line: 7 })
+    expect(s.currentWorkspaceId).toBe('ws-2')
+  })
+
+  it('setWorkspaceContext to a workspace with no remembered file clears the view', () => {
+    useUiStore.getState().setWorkspaceContext('ws-2')
+    const s = useUiStore.getState()
+    expect(s.filePath).toBeNull()
+    expect(s.line).toBeNull()
+    expect(s.openFiles['ws-1']).toEqual({ path: 'src/a.ts', line: null })
+  })
+
+  it('setWorkspaceContext drops the dirty flag (guard ran earlier in the switch path)', () => {
+    seed({ fileDirty: true })
+    useUiStore.getState().setWorkspaceContext('ws-2')
+    expect(useUiStore.getState().fileDirty).toBe(false)
+  })
+
+  it('a same-workspace call is a no-op', () => {
+    useUiStore.getState().setWorkspaceContext('ws-1')
+    expect(useUiStore.getState().filePath).toBe('src/a.ts')
+  })
+})
+
+describe('guardWorkspaceSwitch', () => {
+  it('allows a switch with a clean buffer without asking', () => {
+    const confirm = stubConfirm(false)
+    expect(useUiStore.getState().guardWorkspaceSwitch()).toBe(true)
+    expect(confirm).not.toHaveBeenCalled()
+  })
+
+  it('asks on a dirty buffer and honors the answer', () => {
+    stubConfirm(false)
+    seed({ fileDirty: true })
+    expect(useUiStore.getState().guardWorkspaceSwitch()).toBe(false)
+    vi.unstubAllGlobals()
+    stubConfirm(true)
+    expect(useUiStore.getState().guardWorkspaceSwitch()).toBe(true)
+  })
+})
+
+describe('drafts', () => {
+  it('setDraft stores and clears per-chat text', () => {
+    const s = useUiStore.getState()
+    s.setDraft('chat-1', 'hello')
+    s.setDraft('chat-2', 'other')
+    expect(useUiStore.getState().drafts).toEqual({
+      'chat-1': 'hello',
+      'chat-2': 'other',
+    })
+    // Empty text removes the key rather than leaving '' entries behind.
+    s.setDraft('chat-1', '')
+    expect(useUiStore.getState().drafts).toEqual({ 'chat-2': 'other' })
+  })
+})
+
+describe('workspaceOpen', () => {
+  it('defaults to expanded and toggles persist per workspace', () => {
+    expect(useUiStore.getState().workspaceOpen['ws-1']).toBeUndefined()
+    useUiStore.getState().toggleWorkspaceOpen('ws-1')
+    expect(useUiStore.getState().workspaceOpen['ws-1']).toBe(false)
+    useUiStore.getState().toggleWorkspaceOpen('ws-1')
+    expect(useUiStore.getState().workspaceOpen['ws-1']).toBe(true)
   })
 })

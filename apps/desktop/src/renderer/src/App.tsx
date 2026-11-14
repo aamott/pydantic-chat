@@ -11,6 +11,7 @@ import { Sidebar } from './features/sidebar/Sidebar'
 export function App(): React.JSX.Element {
   const rightPanelOpen = useUiStore((s) => s.rightPanelOpen)
   const togglePanel = useUiStore((s) => s.togglePanel)
+  const setWorkspaceContext = useUiStore((s) => s.setWorkspaceContext)
   const activeWorkspaceId = useChatsStore((s) => s.activeWorkspaceId)
   const loadWorkspaces = useChatsStore((s) => s.loadWorkspaces)
   const createWorkspace = useChatsStore((s) => s.createWorkspace)
@@ -24,6 +25,26 @@ export function App(): React.JSX.Element {
   useEffect(() => window.api.onOpenWorkspace(() => void createWorkspace()), [
     createWorkspace,
   ])
+
+  /* Keep the ui store's workspace context in sync — restores the incoming
+   * workspace's remembered open file and stashes the outgoing one. The
+   * dirty-buffer guard runs earlier, inside selectWorkspace/selectChat. */
+  useEffect(() => {
+    setWorkspaceContext(activeWorkspaceId)
+  }, [activeWorkspaceId, setWorkspaceContext])
+
+  /* Warn before the app window closes with unsaved file edits. Electron
+   * shows the native "Leave site?" dialog on a nonzero returnValue. */
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent): void => {
+      if (useUiStore.getState().fileDirty) {
+        e.preventDefault()
+        e.returnValue = ''
+      }
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [])
 
   /* Ctrl/Cmd+B toggles the right panel. */
   useEffect(() => {
