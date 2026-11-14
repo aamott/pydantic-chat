@@ -78,7 +78,7 @@ export function WorkspaceSection({
     <div className="space-y-0.5">
       {/* Section header — whole row toggles collapse. */}
       <div
-        className={`group flex items-center gap-0.5 rounded-md px-1.5 py-1 ${
+        className={`group flex h-6 items-center gap-0.5 rounded-md px-1.5 ${
           isActive ? 'text-strong' : 'text-secondary'
         } hover-bg-raised`}
       >

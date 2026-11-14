@@ -140,7 +140,7 @@ function ChatRow({
 
   return (
     <div
-      className={`group flex items-center gap-1.5 rounded-md px-2 py-1 text-xs ${
+      className={`group flex h-6 items-center gap-1.5 rounded-md px-2 text-xs ${
         active
           ? 'bg-accent-soft font-medium text-accent'
           : 'text-secondary hover-bg-raised'
