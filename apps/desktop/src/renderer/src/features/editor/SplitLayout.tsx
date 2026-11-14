@@ -16,7 +16,7 @@ interface SplitLayoutProps {
   right: ReactNode
 }
 
-export function SplitLayout({ chat, right }: SplitLayoutProps): React.JSX.Element {
+export function SplitLayout({ chat, right }: Readonly<SplitLayoutProps>): React.JSX.Element {
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({
     id: 'main-split',
     storage: localStorage,
@@ -33,13 +33,13 @@ export function SplitLayout({ chat, right }: SplitLayoutProps): React.JSX.Elemen
       <Panel id="chat" minSize="30%" className="h-full min-w-0">
         {chat}
       </Panel>
-      <Separator className="w-1 bg-neutral-200 transition-colors hover:bg-blue-300 data-[separator=active]:bg-blue-500" />
+      <Separator className="w-1 bg-overlay transition-colors hover-bg-accent-line separator-active" />
       <Panel
         id="right"
         defaultSize="35%"
         minSize="280px"
         maxSize="80%"
-        className="h-full min-w-0 border-l border-neutral-200"
+        className="h-full min-w-0 border-l border-subtle"
       >
         {right}
       </Panel>

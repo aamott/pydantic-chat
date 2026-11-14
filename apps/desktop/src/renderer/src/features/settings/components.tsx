@@ -11,9 +11,9 @@ import { useContext, useState } from 'react'
 import { Plus, X } from 'lucide-react'
 import { SearchContext, SectionMatchedContext, matchesSearch } from './search'
 
-/** Standard text/select input styling (light + dark). */
+/** Standard text/select input styling. */
 export const inputClass =
-  'w-full rounded-md border border-neutral-300 bg-white px-2.5 py-1.5 text-sm text-neutral-800 placeholder:text-neutral-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-100'
+  'w-full rounded-md border border-strong bg-surface px-2.5 py-1.5 text-sm text-default placeholder-faint focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500'
 
 /** Primary (blue) action button. */
 export const primaryButtonClass =
@@ -21,23 +21,23 @@ export const primaryButtonClass =
 
 /** Secondary (bordered) action button. */
 export const secondaryButtonClass =
-  'rounded-md border border-neutral-300 px-3 py-1.5 text-sm text-neutral-700 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-neutral-600 dark:text-neutral-200 dark:hover:bg-neutral-800'
+  'rounded-md border border-strong px-3 py-1.5 text-sm text-secondary hover-bg-subtle disabled:cursor-not-allowed disabled:opacity-50'
 
 /** Section title + optional description shown at the top of each section. */
 export function SectionHeading({
   title,
   description,
-}: {
+}: Readonly<{
   title: string
   description?: string
-}): React.JSX.Element {
+}>): React.JSX.Element {
   return (
     <div>
-      <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
+      <h2 className="text-base font-semibold text-strong">
         {title}
       </h2>
       {description && (
-        <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+        <p className="mt-1 text-xs text-muted">
           {description}
         </p>
       )}
@@ -56,12 +56,12 @@ export function Field({
   hint,
   keywords,
   children,
-}: {
+}: Readonly<{
   label: string
   hint?: string
   keywords?: string
   children: React.ReactNode
-}): React.JSX.Element | null {
+}>): React.JSX.Element | null {
   const query = useContext(SearchContext)
   const sectionMatched = useContext(SectionMatchedContext)
   if (!sectionMatched && !matchesSearch(query, label, hint, keywords)) {
@@ -70,11 +70,11 @@ export function Field({
   return (
     <div className="space-y-1.5">
       <div>
-        <span className="block text-sm font-medium text-neutral-800 dark:text-neutral-200">
+        <span className="block text-sm font-medium text-default">
           {label}
         </span>
         {hint && (
-          <span className="mt-0.5 block text-xs text-neutral-500 dark:text-neutral-400">
+          <span className="mt-0.5 block text-xs text-muted">
             {hint}
           </span>
         )}
@@ -93,11 +93,11 @@ export function TagListEditor({
   value,
   onChange,
   placeholder,
-}: {
+}: Readonly<{
   value: string[]
   onChange: (next: string[]) => void
   placeholder?: string
-}): React.JSX.Element {
+}>): React.JSX.Element {
   const [text, setText] = useState('')
 
   const add = (): void => {
@@ -140,14 +140,14 @@ export function TagListEditor({
           {value.map((item) => (
             <li
               key={item}
-              className="flex items-center gap-1 rounded-full border border-neutral-300 bg-neutral-50 py-0.5 pl-2.5 pr-1 text-xs text-neutral-700 dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-200"
+              className="flex items-center gap-1 rounded-full border border-strong bg-subtle py-0.5 pl-2.5 pr-1 text-xs text-secondary"
             >
               <span className="max-w-64 truncate font-mono">{item}</span>
               <button
                 type="button"
                 aria-label={`Remove ${item}`}
                 onClick={() => onChange(value.filter((v) => v !== item))}
-                className="rounded-full p-0.5 text-neutral-400 hover:bg-neutral-200 hover:text-neutral-600 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"
+                className="rounded-full p-0.5 text-faint hover-bg-overlay hover-text-default"
               >
                 <X className="h-3 w-3" />
               </button>

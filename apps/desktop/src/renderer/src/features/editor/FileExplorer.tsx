@@ -162,12 +162,8 @@ async function describeError(res: Response): Promise<string> {
   } catch {
     /* non-JSON error body — fall through to the status default */
   }
-  switch (res.status) {
-    case 404:
-      return detail ?? 'Workspace not found.'
-    default:
-      return detail ?? `Request failed (HTTP ${res.status}).`
-  }
+  if (res.status === 404) return detail ?? 'Workspace not found.'
+  return detail ?? `Request failed (HTTP ${res.status}).`
 }
 
 /* ------------------------------------------------------------------ */
@@ -176,12 +172,12 @@ async function describeError(res: Response): Promise<string> {
 
 interface FileExplorerProps {
   /** Active workspace id; null renders an empty state (no fetch). */
-  workspaceId: string | null
+  readonly workspaceId: string | null
 }
 
 export function FileExplorer({
   workspaceId,
-}: FileExplorerProps): React.JSX.Element {
+}: Readonly<FileExplorerProps>): React.JSX.Element {
   const openFile = useUiStore((s) => s.openFile)
   const activePath = useUiStore((s) => s.filePath)
   const [state, setState] = useState<ExplorerState>({ status: 'loading' })
@@ -251,21 +247,21 @@ export function FileExplorer({
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* Toolbar: workspace root name, truncation warning, refresh */}
-      <div className="flex h-8 shrink-0 items-center gap-2 border-b border-neutral-200 px-2">
+      <div className="flex h-8 shrink-0 items-center gap-2 border-b border-subtle px-2">
         {root ? (
           <span
-            className="flex min-w-0 flex-1 items-center gap-1.5 text-xs font-medium text-neutral-700"
+            className="flex min-w-0 flex-1 items-center gap-1.5 text-xs font-medium text-secondary"
             title={root.name}
           >
-            <FolderOpen className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
+            <FolderOpen className="h-3.5 w-3.5 shrink-0 text-faint" />
             <span className="truncate">{root.name}</span>
           </span>
         ) : (
-          <span className="flex-1 text-xs text-neutral-400">Explorer</span>
+          <span className="flex-1 text-xs text-faint">Explorer</span>
         )}
         {state.status === 'ready' && state.truncated && (
           <span
-            className="flex shrink-0 items-center gap-1 text-xs text-amber-600"
+            className="flex shrink-0 items-center gap-1 text-xs text-warning"
             title="File listing hit the server cap — the tree is a prefix, not the whole workspace."
           >
             <TriangleAlert className="h-3.5 w-3.5" />
@@ -277,7 +273,7 @@ export function FileExplorer({
           disabled={state.status === 'loading'}
           aria-label="Refresh file tree"
           title="Refresh file tree"
-          className="shrink-0 rounded p-1 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-800 disabled:opacity-40"
+          className="shrink-0 rounded p-1 text-muted hover-bg-raised hover-text-default disabled:opacity-40"
         >
           {state.status === 'loading' ? (
             <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
@@ -321,14 +317,14 @@ export function FileExplorer({
 /* ------------------------------------------------------------------ */
 
 interface TreeRowProps {
-  node: FileTreeNode
+  readonly node: FileTreeNode
   /** Indent level; root's children start at 0. */
-  depth: number
-  expanded: ReadonlySet<string>
+  readonly depth: number
+  readonly expanded: ReadonlySet<string>
   /** Currently viewed file (highlighted), or null. */
-  activePath: string | null
-  onToggleDir: (path: string) => void
-  onOpenFile: (path: string) => void
+  readonly activePath: string | null
+  readonly onToggleDir: (path: string) => void
+  readonly onOpenFile: (path: string) => void
 }
 
 /**
@@ -342,11 +338,12 @@ function TreeRow({
   activePath,
   onToggleDir,
   onOpenFile,
-}: TreeRowProps): React.JSX.Element {
+}: Readonly<TreeRowProps>): React.JSX.Element {
   const isDir = node.type === 'dir'
   const isExpanded = isDir && expanded.has(node.path)
   const isActive = !isDir && node.path === activePath
-  const Icon = isDir ? (isExpanded ? FolderOpen : Folder) : fileIcon(node.name)
+  const dirIcon = isExpanded ? FolderOpen : Folder
+  const Icon = isDir ? dirIcon : fileIcon(node.name)
   const Chevron = isExpanded ? ChevronDown : ChevronRight
 
   const activate = (): void => {
@@ -377,25 +374,27 @@ function TreeRow({
         onClick={activate}
         onKeyDown={onKeyDown}
         style={{ paddingLeft: `${depth * 12 + 8}px` }}
-        className={`flex cursor-pointer items-center gap-1 py-0.5 pr-2 text-xs outline-none select-none focus:bg-neutral-100 ${
+        className={`flex cursor-pointer items-center gap-1 py-0.5 pr-2 text-xs outline-none select-none focus-bg-raised ${
           isActive
-            ? 'bg-blue-50 text-blue-700'
-            : 'text-neutral-700 hover:bg-neutral-100'
+            ? 'bg-accent-soft text-accent'
+            : 'text-secondary hover-bg-raised'
         }`}
       >
         {/* Chevron slot — fixed width so file names align with dir names. */}
         <span className="flex h-4 w-4 shrink-0 items-center justify-center">
-          {isDir && <Chevron className="h-3.5 w-3.5 text-neutral-400" />}
+          {isDir && <Chevron className="h-3.5 w-3.5 text-faint" />}
         </span>
         <Icon
           className={`h-3.5 w-3.5 shrink-0 ${
-            isDir ? 'text-neutral-400' : 'text-neutral-500'
+            isDir ? 'text-faint' : 'text-muted'
           }`}
         />
         <span className="truncate">{node.name}</span>
       </div>
       {isDir && isExpanded && node.children && node.children.length > 0 && (
-        <div role="group">
+        /* role="group" is the ARIA-prescribed wrapper for a treeitem's
+         * children — the suggested native elements don't apply. */
+        <div role="group" /* NOSONAR */>
           {node.children.map((child) => (
             <TreeRow
               key={child.path}
@@ -421,18 +420,18 @@ function Centered({
   icon: Icon,
   note,
   tone = 'muted',
-}: {
+}: Readonly<{
   icon?: LucideIcon
   note: string
   tone?: 'muted' | 'error'
-}): React.JSX.Element {
+}>): React.JSX.Element {
   return (
     <div
       className={`flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-xs ${
-        tone === 'error' ? 'text-red-600' : 'text-neutral-400'
+        tone === 'error' ? 'text-danger' : 'text-faint'
       }`}
     >
-      {Icon && <Icon className="h-6 w-6 text-neutral-300" />}
+      {Icon && <Icon className="h-6 w-6 text-faint" />}
       {note}
     </div>
   )

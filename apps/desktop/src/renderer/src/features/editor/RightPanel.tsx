@@ -27,10 +27,10 @@ const TABS: { id: RightPanelTab; label: string; icon: LucideIcon }[] = [
 
 interface RightPanelProps {
   /** Active workspace id (null until workspace selection lands). */
-  workspaceId: string | null
+  readonly workspaceId: string | null
 }
 
-export function RightPanel({ workspaceId }: RightPanelProps): React.JSX.Element {
+export function RightPanel({ workspaceId }: Readonly<RightPanelProps>): React.JSX.Element {
   const activeTab = useUiStore((s) => s.activeTab)
   const setTab = useUiStore((s) => s.setTab)
   const closePanel = useUiStore((s) => s.closePanel)
@@ -38,9 +38,9 @@ export function RightPanel({ workspaceId }: RightPanelProps): React.JSX.Element 
   const line = useUiStore((s) => s.line)
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-white">
+    <div className="flex h-full min-h-0 flex-col bg-surface">
       {/* Tab strip */}
-      <div className="flex h-9 shrink-0 items-stretch border-b border-neutral-200">
+      <div className="flex h-9 shrink-0 items-stretch border-b border-subtle">
         <div role="tablist" className="flex min-w-0 flex-1">
           {TABS.map(({ id, label, icon: Icon }) => (
             <button
@@ -50,8 +50,8 @@ export function RightPanel({ workspaceId }: RightPanelProps): React.JSX.Element 
               onClick={() => setTab(id)}
               className={`flex items-center gap-1.5 border-b-2 px-3 text-xs ${
                 activeTab === id
-                  ? 'border-blue-500 text-neutral-900'
-                  : 'border-transparent text-neutral-500 hover:text-neutral-800'
+                  ? 'border-accent text-strong'
+                  : 'border-transparent text-muted hover-text-default'
               }`}
             >
               <Icon className="h-3.5 w-3.5" />
@@ -63,7 +63,7 @@ export function RightPanel({ workspaceId }: RightPanelProps): React.JSX.Element 
           onClick={closePanel}
           aria-label="Close panel"
           title="Close panel (Ctrl/Cmd+B)"
-          className="px-2 text-neutral-400 hover:text-neutral-700"
+          className="px-2 text-faint hover-text-default"
         >
           <X className="h-4 w-4" />
         </button>
@@ -93,16 +93,16 @@ function Placeholder({
   icon: Icon,
   title,
   note,
-}: {
+}: Readonly<{
   icon: LucideIcon
   title: string
   note: string
-}): React.JSX.Element {
+}>): React.JSX.Element {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-      <Icon className="h-6 w-6 text-neutral-300" />
-      <p className="text-sm text-neutral-500">{title}</p>
-      <p className="text-xs text-neutral-400">{note}</p>
+      <Icon className="h-6 w-6 text-faint" />
+      <p className="text-sm text-muted">{title}</p>
+      <p className="text-xs text-faint">{note}</p>
     </div>
   )
 }

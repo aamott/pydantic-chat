@@ -96,7 +96,7 @@ export function TerminalView(): React.JSX.Element {
   return <TerminalList key={chat.id} chat={chat} />
 }
 
-function TerminalList({ chat }: { chat: AppChat }): React.JSX.Element {
+function TerminalList({ chat }: Readonly<{ chat: AppChat }>): React.JSX.Element {
   const { messages } = useChat({ chat })
   const blocks = useMemo(() => collectShellBlocks(messages), [messages])
 
@@ -149,28 +149,28 @@ function TerminalList({ chat }: { chat: AppChat }): React.JSX.Element {
 
 function CommandBlockView({
   block,
-}: {
+}: Readonly<{
   block: CommandBlock
-}): React.JSX.Element {
+}>): React.JSX.Element {
   const overflow = block.output.length > OUTPUT_CHAR_CAP
   const output = overflow ? block.output.slice(-OUTPUT_CHAR_CAP) : block.output
 
   return (
     <div
       data-shell-block={block.id}
-      className="overflow-hidden rounded-md border border-neutral-200 bg-neutral-50"
+      className="overflow-hidden rounded-md border border-subtle bg-subtle"
     >
       {/* `$ command` header + status badge */}
-      <div className="flex items-center gap-2 border-b border-neutral-200 px-2.5 py-1.5">
-        <span className="min-w-0 flex-1 truncate font-mono text-xs text-neutral-700">
-          <span className="mr-1 select-none text-neutral-400">$</span>
+      <div className="flex items-center gap-2 border-b border-subtle px-2.5 py-1.5">
+        <span className="min-w-0 flex-1 truncate font-mono text-xs text-secondary">
+          <span className="mr-1 select-none text-faint">$</span>
           {block.command ?? '…'}
         </span>
         <StatusBadge block={block} />
       </div>
 
       {output !== '' && (
-        <pre className="max-h-72 overflow-y-auto whitespace-pre-wrap break-words px-2.5 py-1.5 font-mono text-xs text-neutral-700">
+        <pre className="max-h-72 overflow-y-auto whitespace-pre-wrap break-words px-2.5 py-1.5 font-mono text-xs text-secondary">
           {overflow && '… (earlier output truncated)\n'}
           {output}
         </pre>
@@ -180,7 +180,7 @@ function CommandBlockView({
         block.lineCount !== null ||
         block.outputPath ||
         block.statusPath) && (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-neutral-200 px-2.5 py-1.5 text-[11px] text-neutral-400">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-subtle px-2.5 py-1.5 text-[11px] text-faint">
           {block.lineCount !== null && <span>{block.lineCount} lines</span>}
           {block.truncated && <span>capped by tool</span>}
           {block.pid !== null && <span>pid {block.pid}</span>}
@@ -197,10 +197,10 @@ function CommandBlockView({
 }
 
 /** running spinner · `exit N` · `detached` (still running in background). */
-function StatusBadge({ block }: { block: CommandBlock }): React.JSX.Element {
+function StatusBadge({ block }: Readonly<{ block: CommandBlock }>): React.JSX.Element {
   if (!block.finished) {
     return (
-      <span className="flex shrink-0 items-center gap-1 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] text-blue-700">
+      <span className="flex shrink-0 items-center gap-1 rounded bg-accent-soft px-1.5 py-0.5 text-[10px] text-accent">
         <Loader2 className="h-3 w-3 animate-spin" />
         running
       </span>
@@ -208,7 +208,7 @@ function StatusBadge({ block }: { block: CommandBlock }): React.JSX.Element {
   }
   if (block.exitCode === null) {
     return (
-      <span className="shrink-0 rounded bg-neutral-200 px-1.5 py-0.5 text-[10px] text-neutral-600">
+      <span className="shrink-0 rounded bg-overlay px-1.5 py-0.5 text-[10px] text-secondary">
         detached
       </span>
     )
@@ -217,8 +217,8 @@ function StatusBadge({ block }: { block: CommandBlock }): React.JSX.Element {
     <span
       className={`shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] ${
         block.exitCode === 0
-          ? 'bg-neutral-200 text-neutral-600'
-          : 'bg-red-100 text-red-700'
+          ? 'bg-overlay text-secondary'
+          : 'bg-danger-soft text-danger'
       }`}
     >
       exit {block.exitCode}
@@ -229,9 +229,9 @@ function StatusBadge({ block }: { block: CommandBlock }): React.JSX.Element {
 function EmptyTerminal(): React.JSX.Element {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-      <SquareTerminal className="h-6 w-6 text-neutral-300" />
-      <p className="text-sm text-neutral-500">No shell activity yet</p>
-      <p className="text-xs text-neutral-400">
+      <SquareTerminal className="h-6 w-6 text-faint" />
+      <p className="text-sm text-muted">No shell activity yet</p>
+      <p className="text-xs text-faint">
         Live `shell` tool output appears here while a command runs.
       </p>
     </div>

@@ -35,7 +35,7 @@ export function Popover({
   gap = 6,
   className,
   children,
-}: PopoverProps): React.JSX.Element | null {
+}: Readonly<PopoverProps>): React.JSX.Element | null {
   const popoverRef = useRef<HTMLDivElement>(null)
   const [style, setStyle] = useState<React.CSSProperties | null>(null)
 
@@ -98,7 +98,7 @@ export function Popover({
       // Render at left:-9999 until measured so the card never flashes
       // unpositioned in the top-left corner.
       style={style ?? { position: 'fixed', bottom: 0, left: -9999 }}
-      className={`z-50 rounded-lg border border-neutral-200 bg-white shadow-lg ${className ?? ''}`}
+      className={`z-50 rounded-lg border border-subtle bg-surface shadow-lg ${className ?? ''}`}
     >
       {children}
     </div>

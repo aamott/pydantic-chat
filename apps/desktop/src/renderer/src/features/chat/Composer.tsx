@@ -197,10 +197,10 @@ export function Composer({
   }
 
   return (
-    <div className="shrink-0 border-t border-neutral-200 bg-white p-3">
+    <div className="shrink-0 border-t border-subtle bg-surface p-3">
       <div
         ref={bubbleRef}
-        className="mx-auto max-w-3xl rounded-xl border border-neutral-300 bg-white px-3 pt-2 pb-1.5 focus-within:ring-2 focus-within:ring-blue-400"
+        className="mx-auto max-w-3xl rounded-xl border border-strong bg-surface px-3 pt-2 pb-1.5 focus-within:ring-2 focus-within:ring-blue-400"
       >
         <textarea
           ref={textareaRef}
@@ -225,7 +225,7 @@ export function Composer({
               ? `mention-option-${activeMentionIndex}`
               : undefined
           }
-          className="max-h-40 min-h-6 w-full resize-none bg-transparent text-sm outline-none placeholder:text-neutral-400 disabled:cursor-not-allowed"
+          className="max-h-40 min-h-6 w-full resize-none bg-transparent text-sm outline-none placeholder-faint disabled:cursor-not-allowed"
         />
         {mention && workspaceId && (
           <MentionList
@@ -254,7 +254,7 @@ export function Composer({
               onClick={onStop}
               aria-label="Stop generating"
               title="Stop"
-              className="shrink-0 rounded-lg bg-neutral-800 p-2 text-white hover:bg-neutral-700"
+              className="shrink-0 rounded-lg bg-inverse p-2 text-on-inverse hover:bg-neutral-300"
             >
               <Square className="h-4 w-4" />
             </button>
@@ -267,7 +267,7 @@ export function Composer({
               title="Send (Enter)"
               className={
                 disabled || !text.trim()
-                  ? 'shrink-0 cursor-not-allowed rounded-lg bg-neutral-200 p-2 text-neutral-400'
+                  ? 'shrink-0 cursor-not-allowed rounded-lg bg-overlay p-2 text-faint'
                   : 'shrink-0 rounded-lg bg-blue-600 p-2 text-white hover:bg-blue-700'
               }
             >
@@ -276,7 +276,7 @@ export function Composer({
           )}
         </div>
       </div>
-      <p className="mx-auto mt-1.5 max-w-3xl text-[10px] text-neutral-400">
+      <p className="mx-auto mt-1.5 max-w-3xl text-[10px] text-faint">
         Enter to send · Shift+Enter for newline
       </p>
     </div>

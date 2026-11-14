@@ -78,7 +78,7 @@ export function AttachPicker({
         aria-expanded={open}
         aria-label="Attach a workspace file"
         title="Attach a workspace file"
-        className="shrink-0 rounded-md p-1 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
+        className="shrink-0 rounded-md p-1 text-muted hover-bg-raised hover-text-default disabled:cursor-not-allowed disabled:opacity-50"
       >
         <Plus className="h-4 w-4" />
       </button>
@@ -89,7 +89,7 @@ export function AttachPicker({
           onClose={() => setOpen(false)}
           className="w-72"
         >
-          <div className="border-b border-neutral-100 p-1.5">
+          <div className="border-b border-faint p-1.5">
             <input
               ref={inputRef}
               type="text"
@@ -98,23 +98,23 @@ export function AttachPicker({
               onKeyDown={onInputKeyDown}
               placeholder="Filter files…"
               spellCheck={false}
-              className="w-full rounded-md border border-neutral-200 px-2 py-1 text-xs outline-none placeholder:text-neutral-400 focus:ring-2 focus:ring-blue-400"
+              className="w-full rounded-md border border-subtle px-2 py-1 text-xs outline-none placeholder-faint focus:ring-2 focus:ring-blue-400"
             />
           </div>
           <div className="max-h-72 overflow-y-auto p-1" role="listbox" aria-label="Workspace files">
             {state.status === 'loading' && (
-              <p className="flex items-center gap-1.5 px-2.5 py-3 text-xs text-neutral-400">
+              <p className="flex items-center gap-1.5 px-2.5 py-3 text-xs text-faint">
                 <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
                 Loading files…
               </p>
             )}
             {state.status === 'error' && (
-              <p className="px-2.5 py-3 text-xs text-red-600">
+              <p className="px-2.5 py-3 text-xs text-danger">
                 Couldn't list files: {state.message}
               </p>
             )}
             {state.status === 'ready' && shown.length === 0 && (
-              <p className="px-2.5 py-3 text-xs text-neutral-400">
+              <p className="px-2.5 py-3 text-xs text-faint">
                 {filter ? 'No files match.' : 'No files in this workspace.'}
               </p>
             )}
@@ -125,16 +125,16 @@ export function AttachPicker({
                 role="option"
                 aria-selected={false}
                 onClick={() => pick(file)}
-                className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-neutral-700 hover:bg-neutral-100 focus:bg-neutral-100 focus:outline-none"
+                className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-secondary hover-bg-raised focus-bg-raised focus:outline-none"
               >
-                <File className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
+                <File className="h-3.5 w-3.5 shrink-0 text-faint" />
                 <span className="min-w-0 truncate" title={file.path}>
                   {file.path}
                 </span>
               </button>
             ))}
             {state.status === 'ready' && state.truncated && (
-              <p className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] text-amber-600">
+              <p className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] text-warning">
                 <TriangleAlert className="h-3 w-3" />
                 Listing truncated — filter to narrow it down.
               </p>

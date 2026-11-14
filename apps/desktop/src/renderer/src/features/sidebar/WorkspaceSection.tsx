@@ -45,7 +45,7 @@ export function WorkspaceSection({
   if (confirmingDelete) {
     return (
       <div className="space-y-0.5">
-        <div className="flex items-center gap-1 rounded-md bg-red-50 px-1.5 py-1 text-xs text-red-700">
+        <div className="flex items-center gap-1 rounded-md bg-danger-soft px-1.5 py-1 text-xs text-danger">
           <span className="min-w-0 flex-1 truncate" title={workspace.path}>
             Delete “{name}” and its chats?
           </span>
@@ -54,7 +54,7 @@ export function WorkspaceSection({
             aria-label="Confirm delete workspace"
             title="Confirm delete"
             onClick={() => void deleteWorkspace(workspace.id)}
-            className="rounded p-1 text-red-600 hover:bg-red-100"
+            className="rounded p-1 text-danger hover-bg-danger-soft"
           >
             <Check className="h-3.5 w-3.5" />
           </button>
@@ -63,7 +63,7 @@ export function WorkspaceSection({
             aria-label="Cancel"
             title="Cancel"
             onClick={() => setConfirmingDelete(false)}
-            className="rounded p-1 text-neutral-500 hover:bg-neutral-200"
+            className="rounded p-1 text-muted hover-bg-overlay"
           >
             <X className="h-3.5 w-3.5" />
           </button>
@@ -77,8 +77,8 @@ export function WorkspaceSection({
       {/* Section header — whole row toggles collapse. */}
       <div
         className={`group flex items-center gap-0.5 rounded-md px-1.5 py-1 ${
-          isActive ? 'text-neutral-900' : 'text-neutral-700'
-        } hover:bg-neutral-100`}
+          isActive ? 'text-strong' : 'text-secondary'
+        } hover-bg-raised`}
       >
         <button
           type="button"
@@ -88,11 +88,11 @@ export function WorkspaceSection({
           title={workspace.path}
           className="flex min-w-0 flex-1 items-center gap-1 text-left"
         >
-          <Chevron className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
+          <Chevron className="h-3.5 w-3.5 shrink-0 text-faint" />
           {open ? (
-            <FolderOpen className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
+            <FolderOpen className="h-3.5 w-3.5 shrink-0 text-faint" />
           ) : (
-            <Folder className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
+            <Folder className="h-3.5 w-3.5 shrink-0 text-faint" />
           )}
           <span
             className={`truncate text-xs ${
@@ -103,7 +103,7 @@ export function WorkspaceSection({
           </span>
           {workspace.missing && (
             <span
-              className="shrink-0 rounded bg-amber-100 px-1 py-px text-[9px] font-semibold uppercase tracking-wide text-amber-700"
+              className="shrink-0 rounded bg-warning-soft px-1 py-px text-[9px] font-semibold uppercase tracking-wide text-warning"
               title={`Folder not found: ${workspace.path}`}
             >
               missing
@@ -118,7 +118,7 @@ export function WorkspaceSection({
             onClick={() => void createChat(workspace.id)}
             aria-label={`New chat in ${name}`}
             title="New chat"
-            className="rounded p-1 text-neutral-500 hover:bg-neutral-200 hover:text-neutral-800"
+            className="rounded p-1 text-muted hover-bg-overlay hover-text-default"
           >
             <Plus className="h-3.5 w-3.5" />
           </button>
@@ -127,7 +127,7 @@ export function WorkspaceSection({
             onClick={() => setConfirmingDelete(true)}
             aria-label={`Delete workspace ${name}`}
             title="Delete workspace"
-            className="rounded p-1 text-neutral-500 hover:bg-red-100 hover:text-red-700"
+            className="rounded p-1 text-muted hover-bg-danger-soft hover-text-danger"
           >
             <Trash2 className="h-3.5 w-3.5" />
           </button>

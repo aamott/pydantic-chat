@@ -5,9 +5,8 @@
  * native form controls (`color-scheme`) react immediately.
  *
  * `system` resolves through `prefers-color-scheme` and stays subscribed to
- * OS changes for as long as it is the active setting. Full dark-mode color
- * tokens are a later polish pass — today this mostly drives native widgets
- * and any `dark:` classes the settings window opts into.
+ * OS changes for as long as it is the active setting. The `--c-*` tokens and
+ * semantic classes in styles/index.css flip on this attribute.
  */
 
 /** The setting currently in force; re-applied on OS theme changes. */

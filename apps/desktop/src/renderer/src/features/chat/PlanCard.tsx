@@ -27,7 +27,7 @@ const STATUS_ICON: Record<string, LucideIcon> = {
   completed: CheckCircle2,
 }
 
-export function PlanCard({ data }: { data: unknown }): React.JSX.Element {
+export function PlanCard({ data }: Readonly<{ data: unknown }>): React.JSX.Element {
   const snapshot = asPlanSnapshot(data)
   if (!snapshot) return <JsonCard title="plan" value={data} />
 
@@ -35,7 +35,7 @@ export function PlanCard({ data }: { data: unknown }): React.JSX.Element {
   // tombstone rather than a collapsible that opens onto nothing.
   if (snapshot.tasks.length === 0) {
     return (
-      <p className="my-1.5 flex items-center gap-1.5 text-xs text-neutral-400">
+      <p className="my-1.5 flex items-center gap-1.5 text-xs text-faint">
         <ListTodo className="h-3.5 w-3.5" />
         Plan cleared
       </p>
@@ -62,25 +62,21 @@ export function PlanCard({ data }: { data: unknown }): React.JSX.Element {
   )
 }
 
-function PlanTaskRow({ task }: { task: PlanTask }): React.JSX.Element {
+function PlanTaskRow({ task }: Readonly<{ task: PlanTask }>): React.JSX.Element {
   const Icon = STATUS_ICON[task.status] ?? Circle
   const inProgress = task.status === 'in_progress'
   return (
     <li className="flex items-start gap-2 text-xs">
       <Icon
         className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${
-          inProgress
-            ? 'animate-spin text-blue-600'
-            : task.status === 'completed'
-              ? 'text-neutral-400'
-              : 'text-neutral-300'
+          inProgress ? 'animate-spin text-accent' : 'text-faint'
         }`}
       />
       <span
         className={
           task.status === 'completed'
-            ? 'text-neutral-400 line-through'
-            : 'text-neutral-700'
+            ? 'text-faint line-through'
+            : 'text-secondary'
         }
       >
         {/* In-progress tasks show their present-tense form when provided. */}

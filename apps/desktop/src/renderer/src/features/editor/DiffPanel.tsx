@@ -23,7 +23,7 @@ export function DiffPanel(): React.JSX.Element {
   return <DiffList key={chat.id} chat={chat} />
 }
 
-function DiffList({ chat }: { chat: AppChat }): React.JSX.Element {
+function DiffList({ chat }: Readonly<{ chat: AppChat }>): React.JSX.Element {
   const { messages } = useChat({ chat })
   const diffs = useMemo(() => collectFileDiffs(messages), [messages])
   if (diffs.length === 0) return <EmptyDiff />
@@ -40,9 +40,9 @@ function DiffList({ chat }: { chat: AppChat }): React.JSX.Element {
 function EmptyDiff(): React.JSX.Element {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-      <GitCompareArrows className="h-6 w-6 text-neutral-300" />
-      <p className="text-sm text-neutral-500">No edits yet</p>
-      <p className="text-xs text-neutral-400">
+      <GitCompareArrows className="h-6 w-6 text-faint" />
+      <p className="text-sm text-muted">No edits yet</p>
+      <p className="text-xs text-faint">
         Agent edit_file / write_file diffs appear here.
       </p>
     </div>

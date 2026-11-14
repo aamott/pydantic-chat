@@ -41,7 +41,7 @@ export function MentionList({
   onPick,
   onClose,
   onHighlight,
-}: MentionListProps): React.JSX.Element {
+}: Readonly<MentionListProps>): React.JSX.Element {
   const rowRefs = useRef<(HTMLButtonElement | null)[]>([])
 
   /* Keep the highlighted row in view as arrows move it. */
@@ -60,18 +60,18 @@ export function MentionList({
         className="max-h-72 overflow-y-auto p-1"
       >
         {state.status === 'loading' && (
-          <p className="flex items-center gap-1.5 px-2.5 py-3 text-xs text-neutral-400">
+          <p className="flex items-center gap-1.5 px-2.5 py-3 text-xs text-faint">
             <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
             Loading files…
           </p>
         )}
         {state.status === 'error' && (
-          <p className="px-2.5 py-3 text-xs text-red-600">
+          <p className="px-2.5 py-3 text-xs text-danger">
             Couldn't list files: {state.message}
           </p>
         )}
         {state.status === 'ready' && shown.length === 0 && (
-          <p className="px-2.5 py-3 text-xs text-neutral-400">
+          <p className="px-2.5 py-3 text-xs text-faint">
             No files match.
           </p>
         )}
@@ -91,18 +91,18 @@ export function MentionList({
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => onPick(file)}
             onMouseEnter={() => onHighlight(index)}
-            className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-neutral-700 hover:bg-neutral-100 ${
-              index === activeIndex ? 'bg-neutral-100' : ''
+            className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-secondary hover-bg-raised ${
+              index === activeIndex ? 'bg-raised' : ''
             }`}
           >
-            <File className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
+            <File className="h-3.5 w-3.5 shrink-0 text-faint" />
             <span className="min-w-0 truncate" title={file.path}>
               {file.path}
             </span>
           </button>
         ))}
         {state.status === 'ready' && state.truncated && (
-          <p className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] text-amber-600">
+          <p className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] text-warning">
             <TriangleAlert className="h-3 w-3" />
             Listing truncated — keep typing to narrow it down.
           </p>

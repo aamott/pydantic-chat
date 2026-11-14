@@ -32,7 +32,7 @@ export function ChatPanel(): React.JSX.Element {
   const chat = activeChatId ? getChat(activeChatId) : undefined
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-white">
+    <div className="flex h-full min-h-0 flex-col bg-surface">
       {backendError && (
         <Banner tone="error">
           <span className="truncate">{backendError}</span>
@@ -52,7 +52,7 @@ export function ChatPanel(): React.JSX.Element {
             type="button"
             onClick={dismissNotice}
             aria-label="Dismiss"
-            className="shrink-0 text-neutral-400 hover:text-neutral-600"
+            className="shrink-0 text-faint hover-text-default"
           >
             <X className="h-3.5 w-3.5" />
           </button>
@@ -66,7 +66,7 @@ export function ChatPanel(): React.JSX.Element {
         <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
           {loaded ? (
             <>
-              <p className="text-sm text-neutral-500">
+              <p className="text-sm text-muted">
                 Open a workspace to start chatting.
               </p>
               <button
@@ -79,7 +79,7 @@ export function ChatPanel(): React.JSX.Element {
               </button>
             </>
           ) : (
-            <p className="text-sm text-neutral-400">Loading…</p>
+            <p className="text-sm text-faint">Loading…</p>
           )}
         </div>
       )}
@@ -87,7 +87,7 @@ export function ChatPanel(): React.JSX.Element {
   )
 }
 
-function ChatView({ chat }: { chat: AppChat }): React.JSX.Element {
+function ChatView({ chat }: Readonly<{ chat: AppChat }>): React.JSX.Element {
   const stopActive = useChatsStore((s) => s.stopActive)
   const refreshWorkspaces = useChatsStore((s) => s.refreshWorkspaces)
   /* The chat's own workspace — attach picker lists its files. */
@@ -149,7 +149,7 @@ function ChatView({ chat }: { chat: AppChat }): React.JSX.Element {
   return (
     <>
       {runMeta && (
-        <div className="flex h-8 shrink-0 items-center justify-end border-b border-neutral-200 px-3">
+        <div className="flex h-8 shrink-0 items-center justify-end border-b border-subtle px-3">
           <RunMetaBadge meta={runMeta} />
         </div>
       )}
@@ -181,12 +181,12 @@ function ChatError({
   error,
   onDismiss,
   onRetry,
-}: {
+}: Readonly<{
   error: Error
   onDismiss: () => void
   /** Undefined when there's no user message to resubmit — no button then. */
   onRetry?: () => void
-}): React.JSX.Element {
+}>): React.JSX.Element {
   const statusCode =
     error instanceof APICallError ? error.statusCode : undefined
 
@@ -260,17 +260,17 @@ function describeError(error: Error): string {
 function Banner({
   tone,
   children,
-}: {
+}: Readonly<{
   tone: 'error' | 'info'
   children: React.ReactNode
-}): React.JSX.Element {
+}>): React.JSX.Element {
   return (
     <div
       role="alert"
       className={`flex shrink-0 items-center gap-2 px-3 py-1.5 text-xs ${
         tone === 'error'
           ? 'bg-red-600 text-white'
-          : 'border-b border-neutral-200 bg-neutral-50 text-neutral-600'
+          : 'border-b border-subtle bg-subtle text-secondary'
       }`}
     >
       {tone === 'error' && <AlertCircle className="h-3.5 w-3.5 shrink-0" />}

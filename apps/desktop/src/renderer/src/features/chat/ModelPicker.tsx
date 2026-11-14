@@ -95,7 +95,7 @@ interface ModelPickerProps {
 export function ModelPicker({
   chatId,
   disabled,
-}: ModelPickerProps): React.JSX.Element {
+}: Readonly<ModelPickerProps>): React.JSX.Element {
   const chat = useChatsStore((s) => findChatSummary(s.workspaces, chatId))
   const updateChat = useChatsStore((s) => s.updateChat)
   const providers = useModelsStore((s) => s.providers)
@@ -299,10 +299,10 @@ export function ModelPicker({
         aria-haspopup="dialog"
         aria-expanded={open}
         title={`Model for this chat: ${effectiveModel}`}
-        className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-xs text-neutral-600 hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-50"
+        className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-xs text-secondary hover-bg-raised disabled:cursor-not-allowed disabled:opacity-50"
       >
         <span className="max-w-40 truncate">{shortModelName(effectiveModel)}</span>
-        <ChevronUp className="h-3.5 w-3.5 text-neutral-400" />
+        <ChevronUp className="h-3.5 w-3.5 text-faint" />
       </button>
 
       {open && (
@@ -312,11 +312,11 @@ export function ModelPicker({
           align="end"
           className="w-64"
         >
-          <div className="border-b border-neutral-100 p-1.5">
+          <div className="border-b border-faint p-1.5">
             <div className="relative">
               <Search
                 aria-hidden
-                className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400"
+                className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint"
               />
               <input
                 ref={inputRef}
@@ -332,14 +332,14 @@ export function ModelPicker({
                     : undefined
                 }
                 spellCheck={false}
-                className="w-full rounded-md border border-neutral-200 py-1 pl-7 pr-6 text-xs outline-none placeholder:text-neutral-400 focus:border-blue-400"
+                className="w-full rounded-md border border-subtle py-1 pl-7 pr-6 text-xs outline-none placeholder-faint focus:border-blue-400"
               />
               {query !== '' && (
                 <button
                   type="button"
                   onClick={clearQuery}
                   aria-label="Clear model filter"
-                  className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-0.5 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-0.5 text-faint hover-bg-raised hover-text-default"
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
@@ -359,7 +359,7 @@ export function ModelPicker({
             className="max-h-80 overflow-y-auto p-1"
           >
             {visibleRows.length === 0 && (
-              <p className="px-2.5 py-3 text-xs text-neutral-400">
+              <p className="px-2.5 py-3 text-xs text-faint">
                 {providers.length === 0
                   ? (modelsError ??
                     'No configured model providers — add an API key in Settings.')
@@ -370,7 +370,7 @@ export function ModelPicker({
               item.type === 'header' ? (
                 <div
                   key={`provider-${item.provider.provider}`}
-                  className="sticky top-0 z-10 flex items-center gap-1.5 bg-white px-2.5 pb-1 pt-1.5"
+                  className="sticky top-0 z-10 flex items-center gap-1.5 bg-surface px-2.5 pb-1 pt-1.5"
                 >
                   <span
                     aria-hidden
@@ -381,7 +381,7 @@ export function ModelPicker({
                   >
                     {item.provider.label.charAt(0).toUpperCase() || '◆'}
                   </span>
-                  <span className="text-[10px] font-semibold uppercase tracking-wide text-neutral-400">
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-faint">
                     {item.provider.label}
                   </span>
                 </div>
@@ -446,7 +446,7 @@ function ModelRow({
   onSelect,
   onActivate,
   registerRef,
-}: ModelRowProps): React.JSX.Element {
+}: Readonly<ModelRowProps>): React.JSX.Element {
   const { row, index } = item
   return (
     <button
@@ -460,9 +460,9 @@ function ModelRow({
       onFocus={(e) => onActivate(row, e.currentTarget, index)}
       title={row.model.id}
       className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs focus:outline-none ${
-        active ? 'bg-neutral-100' : ''
-      } hover:bg-neutral-100 focus:bg-neutral-100 ${
-        selected ? 'text-neutral-900' : 'text-neutral-700'
+        active ? 'bg-raised' : ''
+      } hover-bg-raised focus-bg-raised ${
+        selected ? 'text-strong' : 'text-secondary'
       }`}
     >
       <span
@@ -474,8 +474,8 @@ function ModelRow({
         {row.provider.label.charAt(0).toUpperCase() || '◆'}
       </span>
       <span className="min-w-0 flex-1 truncate">{row.model.name}</span>
-      {selected && <Check className="h-3.5 w-3.5 shrink-0 text-blue-600" />}
-      <span className="shrink-0 text-[11px] text-neutral-400">{level}</span>
+      {selected && <Check className="h-3.5 w-3.5 shrink-0 text-accent" />}
+      <span className="shrink-0 text-[11px] text-faint">{level}</span>
     </button>
   )
 }
@@ -499,7 +499,7 @@ function ModelFlyout({
   onPick,
   onEnter,
   onLeave,
-}: ModelFlyoutProps): React.JSX.Element {
+}: Readonly<ModelFlyoutProps>): React.JSX.Element {
   const { model } = anchor.row
   // Prefer hanging off the row's right edge; flip left when it won't fit.
   const fitsRight =
@@ -518,22 +518,22 @@ function ModelFlyout({
       onMouseEnter={onEnter}
       onMouseLeave={onLeave}
       style={{ position: 'fixed', top, left, width: FLYOUT_WIDTH }}
-      className="z-50 rounded-lg border border-neutral-200 bg-white p-2.5 shadow-lg"
+      className="z-50 rounded-lg border border-subtle bg-surface p-2.5 shadow-lg"
     >
-      <p className="truncate text-xs font-medium text-neutral-800">
+      <p className="truncate text-xs font-medium text-default">
         {model.name}
       </p>
-      <p className="truncate text-[10px] text-neutral-400">{model.id}</p>
+      <p className="truncate text-[10px] text-faint">{model.id}</p>
 
       {model.thinking_levels.length > 0 && (
         <label className="mt-2 block">
-          <span className="mb-0.5 block text-[10px] font-medium tracking-wide text-neutral-400 uppercase">
+          <span className="mb-0.5 block text-[10px] font-medium tracking-wide text-faint uppercase">
             Thinking
           </span>
           <select
             value={pending ?? 'default'}
             onChange={(e) => onPick(e.target.value)}
-            className="w-full rounded-md border border-neutral-300 bg-white px-1.5 py-1 text-xs text-neutral-700 focus:border-blue-400 focus:outline-none"
+            className="w-full rounded-md border border-strong bg-surface px-1.5 py-1 text-xs text-secondary focus:border-blue-400 focus:outline-none"
           >
             <option value="default">
               Default{applied ? ` (${applied})` : ''}
@@ -548,7 +548,7 @@ function ModelFlyout({
       )}
 
       {model.max_context !== null && (
-        <p className="mt-2 text-[11px] text-neutral-500">
+        <p className="mt-2 text-[11px] text-muted">
           Context: {model.max_context.toLocaleString()} tokens
         </p>
       )}

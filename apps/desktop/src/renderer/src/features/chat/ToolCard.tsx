@@ -35,9 +35,9 @@ const STATE_LABEL: Record<string, string> = {
 
 export function ToolCard({
   part,
-}: {
+}: Readonly<{
   part: ToolUIPart | DynamicToolUIPart
-}): React.JSX.Element {
+}>): React.JSX.Element {
   const state = part.state
   const errored = state === 'output-error' || state === 'output-denied'
   const name = toolName(part)
@@ -65,7 +65,7 @@ export function ToolCard({
           <button
             type="button"
             onClick={() => openTerminal(part.toolCallId)}
-            className="flex items-center gap-1 text-blue-600 hover:text-blue-700"
+            className="flex items-center gap-1 text-accent hover-text-accent"
           >
             <SquareTerminal className="h-3 w-3" />
             View in Terminal
@@ -73,7 +73,7 @@ export function ToolCard({
         )}
         {ref && (
           <div>
-            <p className="mb-0.5 font-medium text-neutral-500">path</p>
+            <p className="mb-0.5 font-medium text-muted">path</p>
             <FileLink path={ref.path} line={ref.line} />
           </div>
         )}
@@ -100,8 +100,8 @@ export function ToolCard({
           <p
             className={
               part.approval.approved === false
-                ? 'text-red-600'
-                : 'text-neutral-500'
+                ? 'text-danger'
+                : 'text-muted'
             }
           >
             {part.approval.approved === false ? 'denied' : 'approved'}
@@ -125,11 +125,11 @@ const OUTPUT_RENDERERS: Record<string, (output: string) => ReactNode> = {
   list_directory: renderDirList,
 }
 
-function OutputBlock({ children }: { children: ReactNode }): React.JSX.Element {
+function OutputBlock({ children }: Readonly<{ children: ReactNode }>): React.JSX.Element {
   return (
     <div>
-      <p className="mb-0.5 font-medium text-neutral-500">output</p>
-      <div className="whitespace-pre-wrap break-words rounded bg-white px-2 py-1.5 font-mono text-neutral-700">
+      <p className="mb-0.5 font-medium text-muted">output</p>
+      <div className="whitespace-pre-wrap break-words rounded bg-surface px-2 py-1.5 font-mono text-secondary">
         {children}
       </div>
     </div>
@@ -221,7 +221,7 @@ function renderDirList(output: string): ReactNode {
           return (
             <div key={i}>
               <FileLink path={entry[1]} />
-              <span className="text-neutral-400">  ({entry[2]})</span>
+              <span className="text-faint">  ({entry[2]})</span>
             </div>
           )
         })}

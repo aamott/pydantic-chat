@@ -52,7 +52,7 @@ export function MessageList({
   onApprovalResponse,
   onEditMessage,
   onRegenerate,
-}: MessageListProps): React.JSX.Element {
+}: Readonly<MessageListProps>): React.JSX.Element {
   const scrollRef = useRef<HTMLDivElement>(null)
   const stickToBottom = useRef(true)
   const busy = status === 'submitted' || status === 'streaming'
@@ -134,7 +134,7 @@ function MessageRow({
   onStartEdit,
   canRegenerate,
   onRegenerate,
-}: {
+}: Readonly<{
   message: UIMessage
   onApprovalResponse: ApprovalResponder
   approvalsDisabled: boolean
@@ -144,7 +144,7 @@ function MessageRow({
   /** True only for the trailing assistant message in `ready` status. */
   canRegenerate: boolean
   onRegenerate: () => void
-}): React.JSX.Element {
+}>): React.JSX.Element {
   // Dedicated surfaces own some data parts: `data-shell` → Terminal tab,
   // `data-run-meta` → header badge, and only the latest `data-plan`
   // snapshot per message is worth a card (see transcriptParts).
@@ -163,7 +163,7 @@ function MessageRow({
                 onClick={onStartEdit}
                 aria-label="Edit message"
                 title="Edit"
-                className="absolute -left-6 top-1/2 -translate-y-1/2 text-neutral-300 opacity-0 transition-opacity hover:text-neutral-600 group-hover:opacity-100"
+                className="absolute -left-6 top-1/2 -translate-y-1/2 text-faint opacity-0 transition-opacity hover-text-default group-hover:opacity-100"
               >
                 <Pencil className="h-3.5 w-3.5" />
               </button>
@@ -187,7 +187,7 @@ function MessageRow({
   }
 
   return (
-    <div className="group text-sm text-neutral-800">
+    <div className="group text-sm text-default">
       {groupApprovals(parts).map((group, i) =>
         group.kind === 'approvals' ? (
           <ApprovalGroup
@@ -205,13 +205,13 @@ function MessageRow({
           />
         ),
       )}
-      {parts.length === 0 && <span className="text-neutral-400">…</span>}
+      {parts.length === 0 && <span className="text-faint">…</span>}
       {canRegenerate && (
         <button
           type="button"
           onClick={onRegenerate}
           title="Regenerate response"
-          className="mt-1 flex items-center gap-1 text-xs text-neutral-400 opacity-0 transition-opacity hover:text-neutral-600 group-hover:opacity-100"
+          className="mt-1 flex items-center gap-1 text-xs text-faint opacity-0 transition-opacity hover-text-default group-hover:opacity-100"
         >
           <RotateCcw className="h-3 w-3" />
           Regenerate
@@ -232,11 +232,11 @@ function UserEditRow({
   initial,
   onSave,
   onCancel,
-}: {
+}: Readonly<{
   initial: string
   onSave: (text: string) => void
   onCancel: () => void
-}): React.JSX.Element {
+}>): React.JSX.Element {
   const [draft, setDraft] = useState(initial)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -281,13 +281,13 @@ function UserEditRow({
         onKeyDown={onKeyDown}
         rows={1}
         aria-label="Edit message"
-        className="max-h-52 w-full max-w-[85%] resize-none rounded-xl border border-blue-300 bg-white px-3.5 py-2 text-sm outline-none focus:border-blue-500"
+        className="max-h-52 w-full max-w-[85%] resize-none rounded-xl border border-accent-soft bg-surface px-3.5 py-2 text-sm outline-none focus:border-blue-500"
       />
       <div className="flex gap-1.5 text-xs">
         <button
           type="button"
           onClick={onCancel}
-          className="rounded-lg border border-neutral-300 px-2.5 py-1 text-neutral-600 hover:bg-neutral-50"
+          className="rounded-lg border border-strong px-2.5 py-1 text-secondary hover-bg-subtle"
         >
           Cancel
         </button>
@@ -296,7 +296,7 @@ function UserEditRow({
           onClick={save}
           disabled={!draft.trim()}
           title="Resubmit from this message"
-          className="rounded-lg bg-blue-600 px-2.5 py-1 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400"
+          className="rounded-lg bg-blue-600 px-2.5 py-1 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled-bg-overlay disabled-text-faint"
         >
           Save &amp; send
         </button>
@@ -305,14 +305,14 @@ function UserEditRow({
   )
 }
 
-function EmptyState({ status }: { status: ChatStatus }): React.JSX.Element {
+function EmptyState({ status }: Readonly<{ status: ChatStatus }>): React.JSX.Element {
   const busy = status === 'submitted' || status === 'streaming'
   return (
     <div className="flex h-full items-center justify-center">
       {busy ? (
-        <WorkingIndicator className="text-sm text-neutral-400" />
+        <WorkingIndicator className="text-sm text-faint" />
       ) : (
-        <p className="text-sm text-neutral-400">Send a message to start.</p>
+        <p className="text-sm text-faint">Send a message to start.</p>
       )}
     </div>
   )
@@ -330,10 +330,10 @@ function EmptyState({ status }: { status: ChatStatus }): React.JSX.Element {
  * digits from jittering the line's width.
  */
 function WorkingIndicator({
-  className = 'text-xs text-neutral-400',
-}: {
+  className = 'text-xs text-faint',
+}: Readonly<{
   className?: string
-}): React.JSX.Element {
+}>): React.JSX.Element {
   const [startedAt] = useState(() => Date.now())
   const [now, setNow] = useState(startedAt)
   useEffect(() => {

@@ -38,21 +38,21 @@ export function App(): React.JSX.Element {
   }, [togglePanel])
 
   return (
-    <div className="flex h-screen text-neutral-900">
+    <div className="bg-surface text-strong flex h-screen">
       <ActivityBar />
       <Sidebar />
 
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Toolbar */}
-        <header className="flex h-10 shrink-0 items-center justify-between border-b border-neutral-200 px-3">
-          <span className="text-sm font-medium text-neutral-700">Chat</span>
+        <header className="flex h-10 shrink-0 items-center justify-between border-b border-subtle px-3">
+          <span className="text-sm font-medium text-secondary">Chat</span>
           <button
             onClick={togglePanel}
             aria-label="Toggle right panel"
             aria-pressed={rightPanelOpen}
             title="Toggle right panel (Ctrl/Cmd+B)"
-            className={`rounded p-1.5 hover:bg-neutral-100 ${
-              rightPanelOpen ? 'text-blue-600' : 'text-neutral-500'
+            className={`rounded p-1.5 hover-bg-raised ${
+              rightPanelOpen ? 'text-accent' : 'text-muted'
             }`}
           >
             <PanelRight className="h-4 w-4" />

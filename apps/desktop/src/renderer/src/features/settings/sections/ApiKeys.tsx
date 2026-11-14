@@ -76,9 +76,9 @@ export function ApiKeysSection(): React.JSX.Element | null {
 /** Search-aware Field wrapper picking the right row control per provider. */
 function ProviderField({
   provider,
-}: {
+}: Readonly<{
   provider: ProviderStatus
-}): React.JSX.Element {
+}>): React.JSX.Element {
   const info = PROVIDER_INFO[provider.provider] ?? { name: provider.provider }
   // URL-bearing providers get extra terms so "base url" finds their rows.
   const urlTerms =
@@ -103,10 +103,10 @@ function ProviderField({
 }
 
 /** file/env/not-set badge driven by the ProviderOut credential status. */
-function StatusBadge({ provider }: { provider: ProviderStatus }): React.JSX.Element {
+function StatusBadge({ provider }: Readonly<{ provider: ProviderStatus }>): React.JSX.Element {
   if (provider.has_key) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-green-50 px-2 py-0.5 text-xs text-green-700 dark:bg-green-950 dark:text-green-300">
+      <span className="inline-flex items-center gap-1 rounded-full bg-success-soft px-2 py-0.5 text-xs text-success">
         <KeyRound className="h-3 w-3" />
         {provider.source === 'env' ? 'From environment' : 'Key saved'}
       </span>
@@ -114,20 +114,20 @@ function StatusBadge({ provider }: { provider: ProviderStatus }): React.JSX.Elem
   }
   if (provider.provider === 'ollama' || provider.configured) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+      <span className="inline-flex items-center gap-1 rounded-full bg-accent-soft px-2 py-0.5 text-xs text-accent">
         No key needed
       </span>
     )
   }
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-neutral-100 px-2 py-0.5 text-xs text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+    <span className="inline-flex items-center gap-1 rounded-full bg-raised px-2 py-0.5 text-xs text-muted">
       Not set
     </span>
   )
 }
 
 /** Standard key row: password input + Save/Clear, status badge, per-row error. */
-function KeyRow({ provider }: { provider: ProviderStatus }): React.JSX.Element {
+function KeyRow({ provider }: Readonly<{ provider: ProviderStatus }>): React.JSX.Element {
   const saveSecret = useSettingsStore((s) => s.saveSecret)
   const clearSecret = useSettingsStore((s) => s.clearSecret)
   const [key, setKey] = useState('')
@@ -190,7 +190,7 @@ function KeyRow({ provider }: { provider: ProviderStatus }): React.JSX.Element {
 }
 
 /** Ollama: no key — just the server base URL via the secrets route. */
-function OllamaRow({ provider }: { provider: ProviderStatus }): React.JSX.Element {
+function OllamaRow({ provider }: Readonly<{ provider: ProviderStatus }>): React.JSX.Element {
   const settings = useSettingsStore((s) => s.settings)
   const saveSecret = useSettingsStore((s) => s.saveSecret)
   const [baseUrl, setBaseUrl] = useState(settings?.ollama_base_url ?? '')
@@ -239,7 +239,7 @@ function OllamaRow({ provider }: { provider: ProviderStatus }): React.JSX.Elemen
 }
 
 /** OpenAI-compatible: base URL (required to use it) plus an optional key. */
-function CompatibleRow({ provider }: { provider: ProviderStatus }): React.JSX.Element {
+function CompatibleRow({ provider }: Readonly<{ provider: ProviderStatus }>): React.JSX.Element {
   const saveSecret = useSettingsStore((s) => s.saveSecret)
   const clearSecret = useSettingsStore((s) => s.clearSecret)
   const [baseUrl, setBaseUrl] = useState('')
@@ -329,16 +329,16 @@ function CompatibleRow({ provider }: { provider: ProviderStatus }): React.JSX.El
 function RowFeedback({
   error,
   flash,
-}: {
+}: Readonly<{
   error: string | null
   flash: string | null
-}): React.JSX.Element | null {
+}>): React.JSX.Element | null {
   if (error) {
-    return <p className="text-xs text-red-600 dark:text-red-400">{error}</p>
+    return <p className="text-xs text-danger">{error}</p>
   }
   if (flash) {
     return (
-      <p className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
+      <p className="flex items-center gap-1 text-xs text-success">
         <CheckCircle2 className="h-3 w-3" />
         {flash}
       </p>

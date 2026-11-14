@@ -204,7 +204,7 @@ export function ToolProfilesSection(): React.JSX.Element {
         description="Named bundles of approval mode + tool/skill allowlists. Profiles are selectable per chat in the composer and as the global default under Permissions; changes apply to the next run."
       />
       {banner && (
-        <p className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300">
+        <p className="rounded-md border border-danger bg-danger-soft px-3 py-2 text-sm text-danger">
           {banner}
         </p>
       )}
@@ -214,7 +214,7 @@ export function ToolProfilesSection(): React.JSX.Element {
         keywords="tool profile profiles permission custom builtin duplicate approval tools skills mcp allowlist"
       >
         {!loaded || !catalogsReady ? (
-          <p className="text-sm text-neutral-500 dark:text-neutral-400">
+          <p className="text-sm text-muted">
             Loading…
           </p>
         ) : (
@@ -222,7 +222,7 @@ export function ToolProfilesSection(): React.JSX.Element {
             {profiles.map((profile) => (
               <li
                 key={profile.id}
-                className="rounded-md border border-neutral-200 dark:border-neutral-700"
+                className="rounded-md border border-subtle"
               >
                 {draft?.id === profile.id ? (
                   <ProfileEditor
@@ -265,7 +265,7 @@ export function ToolProfilesSection(): React.JSX.Element {
       {/* The new-profile form renders below the list (same pattern as the
           MCP server add form). */}
       {draft?.id === null && (
-        <div className="rounded-md border border-neutral-200 dark:border-neutral-700">
+        <div className="rounded-md border border-subtle">
           <ProfileEditor
             draft={draft}
             onChange={(fn) => setDraft((d) => (d ? fn(d) : d))}
@@ -305,28 +305,28 @@ function ProfileRow({
         aria-label={`Expand ${profile.name}`}
         className="flex min-w-0 flex-1 items-center gap-3 text-left"
       >
-        <ChevronRight className="h-4 w-4 shrink-0 text-neutral-400" />
+        <ChevronRight className="h-4 w-4 shrink-0 text-faint" />
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-2">
-            <span className="truncate text-sm font-medium text-neutral-800 dark:text-neutral-200">
+            <span className="truncate text-sm font-medium text-default">
               {profile.name}
             </span>
             {profile.builtin ? (
-              <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-neutral-100 px-2 py-0.5 text-xs text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+              <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-raised px-2 py-0.5 text-xs text-muted">
                 <Lock className="h-3 w-3" />
                 built-in
               </span>
             ) : (
-              <span className="shrink-0 rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-600 dark:bg-blue-950/60 dark:text-blue-300">
+              <span className="shrink-0 rounded-full bg-accent-soft px-2 py-0.5 text-xs text-accent">
                 custom
               </span>
             )}
-            <span className="shrink-0 rounded-full bg-neutral-100 px-2 py-0.5 text-xs text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+            <span className="shrink-0 rounded-full bg-raised px-2 py-0.5 text-xs text-muted">
               {profile.approval_mode}
             </span>
           </span>
           {profile.description && (
-            <span className="block truncate text-xs text-neutral-500 dark:text-neutral-400">
+            <span className="block truncate text-xs text-muted">
               {profile.description}
             </span>
           )}
@@ -338,7 +338,7 @@ function ProfileRow({
         disabled={busy}
         aria-label={`Duplicate ${profile.name}`}
         title="Duplicate as a custom profile"
-        className="shrink-0 rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 disabled:opacity-50 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+        className="shrink-0 rounded p-1 text-faint hover-bg-raised hover-text-default disabled:opacity-50"
       >
         <Copy className="h-4 w-4" />
       </button>
@@ -412,21 +412,21 @@ function ProfileEditor({
   return (
     <div className="space-y-3 px-3 py-3">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-medium text-neutral-800 dark:text-neutral-200">
+        <span className="text-sm font-medium text-default">
           {title}
         </span>
         <button
           type="button"
           onClick={onClose}
           aria-label="Collapse"
-          className="rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+          className="rounded p-1 text-faint hover-bg-raised hover-text-default"
         >
           <ChevronDown className="h-4 w-4" />
         </button>
       </div>
 
       {readOnly && (
-        <p className="text-xs text-neutral-500 dark:text-neutral-400">
+        <p className="text-xs text-muted">
           Built-in profiles can’t be edited — duplicate this one to customize
           a copy.
         </p>
@@ -434,7 +434,7 @@ function ProfileEditor({
 
       <div className="grid grid-cols-2 gap-3">
         <label className="block space-y-1">
-          <span className="text-xs text-neutral-500 dark:text-neutral-400">
+          <span className="text-xs text-muted">
             Name
           </span>
           <input
@@ -447,7 +447,7 @@ function ProfileEditor({
           />
         </label>
         <label className="block space-y-1">
-          <span className="text-xs text-neutral-500 dark:text-neutral-400">
+          <span className="text-xs text-muted">
             Description
           </span>
           <input
@@ -465,7 +465,7 @@ function ProfileEditor({
 
       <div className="grid grid-cols-2 gap-3">
         <label className="block space-y-1">
-          <span className="text-xs text-neutral-500 dark:text-neutral-400">
+          <span className="text-xs text-muted">
             Approval mode
           </span>
           <select
@@ -485,7 +485,7 @@ function ProfileEditor({
               </option>
             ))}
           </select>
-          <span className="block text-xs text-neutral-400">
+          <span className="block text-xs text-faint">
             {
               APPROVAL_MODES.find((m) => m.value === draft.approval_mode)
                 ?.description
@@ -503,10 +503,10 @@ function ProfileEditor({
             className="mt-0.5 accent-blue-600"
           />
           <span>
-            <span className="block text-sm text-neutral-700 dark:text-neutral-300">
+            <span className="block text-sm text-secondary">
               Read-only workspace
             </span>
-            <span className="block text-xs text-neutral-400">
+            <span className="block text-xs text-faint">
               Mount the workspace read-only so file writes fail outright.
             </span>
           </span>
@@ -525,7 +525,7 @@ function ProfileEditor({
         <div className="space-y-2 pl-6">
           {groups.map(({ group, entries }) => (
             <div key={group}>
-              <span className="text-xs font-medium uppercase tracking-wide text-neutral-400">
+              <span className="text-xs font-medium uppercase tracking-wide text-faint">
                 {TOOL_GROUP_LABELS[group]}
               </span>
               <ul className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1">
@@ -547,11 +547,11 @@ function ProfileEditor({
 
       {/* MCP server prefix checkboxes — one per enabled server. */}
       <div className="space-y-1.5">
-        <span className="text-sm font-medium text-neutral-800 dark:text-neutral-200">
+        <span className="text-sm font-medium text-default">
           MCP servers
         </span>
         {(catalog ?? []).filter((e) => e.prefix).length === 0 ? (
-          <p className="pl-6 text-xs text-neutral-400">
+          <p className="pl-6 text-xs text-faint">
             No MCP servers enabled.
           </p>
         ) : (
@@ -580,10 +580,10 @@ function ProfileEditor({
       <div className="space-y-1.5">
         {skills.length === 0 ? (
           <>
-            <span className="text-sm font-medium text-neutral-800 dark:text-neutral-200">
+            <span className="text-sm font-medium text-default">
               Skills
             </span>
-            <p className="pl-6 text-xs text-neutral-400">
+            <p className="pl-6 text-xs text-faint">
               No skills discovered.
             </p>
           </>
@@ -656,7 +656,7 @@ function ProfileEditor({
                 type="button"
                 onClick={onDelete}
                 disabled={busy}
-                className={`${secondaryButtonClass} inline-flex items-center gap-1.5 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40`}
+                className={`${secondaryButtonClass} inline-flex items-center gap-1.5 text-danger hover-bg-danger-soft`}
               >
                 <Trash2 className="h-4 w-4" />
                 Delete
@@ -694,7 +694,7 @@ function MasterCheckbox({
   const some = names.some((name) => checked.has(name))
   return (
     <label
-      className={`flex items-center gap-2 text-sm font-medium text-neutral-800 dark:text-neutral-200 ${
+      className={`flex items-center gap-2 text-sm font-medium text-default ${
         disabled ? '' : 'cursor-pointer'
       }`}
     >
@@ -734,7 +734,7 @@ function CheckItem({
   return (
     <li>
       <label
-        className={`flex items-start gap-2 text-sm text-neutral-700 dark:text-neutral-300 ${
+        className={`flex items-start gap-2 text-sm text-secondary ${
           disabled ? '' : 'cursor-pointer'
         }`}
       >
@@ -748,12 +748,12 @@ function CheckItem({
         <span className="min-w-0">
           <span className="font-mono text-xs">{name}</span>
           {badge && (
-            <span className="ml-1.5 rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+            <span className="ml-1.5 rounded-full bg-raised px-1.5 py-0.5 text-[10px] text-muted">
               {badge}
             </span>
           )}
           {hint && (
-            <span className="block truncate text-xs text-neutral-400">
+            <span className="block truncate text-xs text-faint">
               {hint}
             </span>
           )}

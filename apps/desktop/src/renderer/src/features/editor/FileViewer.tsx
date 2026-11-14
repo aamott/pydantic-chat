@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { minimalSetup } from 'codemirror'
 import {
+  Compartment,
   EditorState,
   StateEffect,
   StateField,
@@ -18,7 +19,13 @@ import {
   lineNumbers,
   type DecorationSet,
 } from '@codemirror/view'
-import { bracketMatching, foldGutter, LanguageDescription } from '@codemirror/language'
+import {
+  bracketMatching,
+  foldGutter,
+  LanguageDescription,
+  syntaxHighlighting,
+} from '@codemirror/language'
+import { oneDarkHighlightStyle } from '@codemirror/theme-one-dark'
 import { languages } from '@codemirror/language-data'
 import { apiFetch } from '../../lib/api'
 
@@ -51,15 +58,49 @@ const anchorLineField = StateField.define<DecorationSet>({
   provide: (f) => EditorView.decorations.from(f),
 })
 
-/** Viewer chrome: fill parent, monospace scroller, no focus ring, anchor tint. */
+/**
+ * Viewer chrome: fill parent, monospace scroller, no focus ring, anchor tint.
+ * Colors reference the `--c-*` theme vars from styles/index.css so the editor
+ * follows `data-theme` — only the syntax-highlight style needs swapping (it
+ * can't be expressed as a var), which `highlightCompartment` handles below.
+ */
 const viewerTheme = EditorView.theme({
-  '&': { height: '100%', fontSize: '13px' },
+  '&': {
+    height: '100%',
+    fontSize: '13px',
+    backgroundColor: 'var(--c-surface)',
+    color: 'var(--c-ink)',
+  },
   '.cm-scroller': {
     fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+  },
+  '.cm-gutters': {
+    backgroundColor: 'var(--c-subtle)',
+    color: 'var(--c-ink-faint)',
+    borderRight: '1px solid var(--c-line)',
+  },
+  '.cm-activeLine, .cm-activeLineGutter': {
+    backgroundColor: 'var(--c-raised)',
+  },
+  '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': {
+    backgroundColor: 'var(--c-overlay)',
   },
   '.cm-anchor-line': { backgroundColor: 'rgb(250 204 21 / 0.18)' },
   '&.cm-focused': { outline: 'none' },
 })
+
+/*
+ * minimalSetup ships the light `defaultHighlightStyle` (fallback precedence);
+ * in dark mode the compartment overrides it with oneDarkHighlightStyle.
+ * `data-theme` is set by lib/theme.ts — a MutationObserver reconfigures the
+ * compartment live so an in-session theme switch doesn't need a remount.
+ */
+const highlightCompartment = new Compartment()
+
+const darkHighlight = (): Extension =>
+  document.documentElement.dataset.theme === 'dark'
+    ? syntaxHighlighting(oneDarkHighlightStyle)
+    : []
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -151,18 +192,18 @@ function formatSize(bytes: number): string {
 
 interface FileViewerProps {
   /** Active workspace id; null renders an empty state (no fetch). */
-  workspaceId: string | null
+  readonly workspaceId: string | null
   /** Workspace-relative (or absolute) file path to preview. */
-  path: string
+  readonly path: string
   /** Optional 1-based line anchor to scroll to / highlight. */
-  line?: number | null
+  readonly line?: number | null
 }
 
 export function FileViewer({
   workspaceId,
   path,
   line = null,
-}: FileViewerProps): React.JSX.Element {
+}: Readonly<FileViewerProps>): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const viewRef = useRef<EditorView | null>(null)
   /** Doc currently in the editor — skips rebuilds on identical refetches. */
@@ -221,6 +262,7 @@ export function FileViewer({
             EditorView.editable.of(false),
             anchorLineField,
             viewerTheme,
+            highlightCompartment.of(darkHighlight()),
             ...(lang ? [lang.support] : []),
           ],
         }),
@@ -262,6 +304,20 @@ export function FileViewer({
     if (view && line) scrollToLine(view, line)
   }, [line, docVersion])
 
+  /* Swap the syntax-highlight style when `data-theme` flips (theme setting). */
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      viewRef.current?.dispatch({
+        effects: highlightCompartment.reconfigure(darkHighlight()),
+      })
+    })
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme'],
+    })
+    return () => observer.disconnect()
+  }, [])
+
   /* Destroy the editor on unmount (rebuilds destroy the previous instance
    * inside the load effect instead, so identical-content refetches keep it). */
   useEffect(
@@ -276,15 +332,15 @@ export function FileViewer({
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* Header: path + file meta */}
-      <div className="flex h-8 shrink-0 items-center justify-between gap-3 border-b border-neutral-200 px-3">
+      <div className="flex h-8 shrink-0 items-center justify-between gap-3 border-b border-subtle px-3">
         <span
-          className="truncate font-mono text-xs text-neutral-600"
+          className="truncate font-mono text-xs text-secondary"
           title={path}
         >
           {path}
         </span>
         {state.status === 'ready' && (
-          <span className="shrink-0 text-xs text-neutral-400">
+          <span className="shrink-0 text-xs text-faint">
             {state.languageName ?? 'Plain text'} · {formatSize(state.size)} ·
             read-only
           </span>
@@ -311,14 +367,14 @@ export function FileViewer({
 function Overlay({
   children,
   tone = 'muted',
-}: {
+}: Readonly<{
   children: React.ReactNode
   tone?: 'muted' | 'error'
-}): React.JSX.Element {
+}>): React.JSX.Element {
   return (
     <div
-      className={`absolute inset-0 flex items-center justify-center bg-white px-6 text-center text-sm ${
-        tone === 'error' ? 'text-red-600' : 'text-neutral-400'
+      className={`absolute inset-0 flex items-center justify-center bg-surface px-6 text-center text-sm ${
+        tone === 'error' ? 'text-danger' : 'text-faint'
       }`}
     >
       {children}

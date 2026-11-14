@@ -27,7 +27,7 @@ export function ChatList({
 }: Readonly<ChatListProps>): React.JSX.Element {
   if (chats.length === 0) {
     return (
-      <p className="px-2 py-1.5 text-[11px] text-neutral-400">No chats yet.</p>
+      <p className="px-2 py-1.5 text-[11px] text-faint">No chats yet.</p>
     )
   }
   return (
@@ -87,7 +87,7 @@ function ChatRow({
 
   if (editing) {
     return (
-      <div className="flex items-center gap-1 rounded-md bg-neutral-100 px-2 py-1">
+      <div className="flex items-center gap-1 rounded-md bg-raised px-2 py-1">
         <input
           ref={renameInputRef}
           value={draft}
@@ -101,7 +101,7 @@ function ChatRow({
           }}
           onBlur={() => void commitRename()}
           aria-label="Rename chat"
-          className="min-w-0 flex-1 rounded border border-blue-300 bg-white px-1.5 py-0.5 text-xs text-neutral-800 outline-none"
+          className="min-w-0 flex-1 rounded border border-accent-soft bg-surface px-1.5 py-0.5 text-xs text-default outline-none"
         />
         <RowButton label="Save" onClick={() => void commitRename()}>
           <Check className="h-3.5 w-3.5" />
@@ -121,7 +121,7 @@ function ChatRow({
 
   if (confirmingDelete) {
     return (
-      <div className="flex items-center gap-1 rounded-md bg-red-50 px-2 py-1 text-xs text-red-700">
+      <div className="flex items-center gap-1 rounded-md bg-danger-soft px-2 py-1 text-xs text-danger">
         <span className="min-w-0 flex-1 truncate">Delete this chat?</span>
         <RowButton
           label="Confirm delete"
@@ -141,8 +141,8 @@ function ChatRow({
     <div
       className={`group flex items-center gap-1.5 rounded-md px-2 py-1 text-xs ${
         active
-          ? 'bg-blue-50 font-medium text-blue-700'
-          : 'text-neutral-600 hover:bg-neutral-100'
+          ? 'bg-accent-soft font-medium text-accent'
+          : 'text-secondary hover-bg-raised'
       }`}
     >
       <button
@@ -154,7 +154,7 @@ function ChatRow({
         {chat.title}
       </button>
       {/* Activity time gives way to the hover actions on the same slot. */}
-      <span className="shrink-0 text-[10px] text-neutral-400 group-hover:hidden">
+      <span className="shrink-0 text-[10px] text-faint group-hover:hidden">
         {formatRelativeTime(chat.updated_at)}
       </span>
       <span className="hidden shrink-0 items-center group-hover:flex">
@@ -205,8 +205,8 @@ function RowButton({
       title={label}
       className={`rounded p-1 ${
         tone === 'danger'
-          ? 'text-neutral-500 hover:bg-red-100 hover:text-red-700'
-          : 'text-neutral-500 hover:bg-neutral-200 hover:text-neutral-800'
+          ? 'text-muted hover-bg-danger-soft hover-text-danger'
+          : 'text-muted hover-bg-overlay hover-text-default'
       }`}
     >
       {children}

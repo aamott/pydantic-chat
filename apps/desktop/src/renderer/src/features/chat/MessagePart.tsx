@@ -83,11 +83,11 @@ export function MessagePart({
   part,
   onApprovalResponse,
   approvalsDisabled,
-}: {
+}: Readonly<{
   part: Part
   onApprovalResponse: ApprovalResponder
   approvalsDisabled?: boolean
-}): React.JSX.Element | null {
+}>): React.JSX.Element | null {
   if (isPendingApproval(part)) {
     // Normally reached via grouped calls in MessageList; lone stragglers
     // (e.g. a pending part on a non-assistant message) still get the card.
@@ -117,7 +117,7 @@ export function MessagePart({
     case 'source-document':
       return <SourceDocumentPart part={part} />
     case 'step-start':
-      return <hr className="my-2 border-neutral-200" />
+      return <hr className="my-2 border-subtle" />
     case 'reasoning-file':
       return <Chip icon={Paperclip} label={part.mediaType} title={part.url} />
     case 'custom':
@@ -132,7 +132,7 @@ export function MessagePart({
 /* text                                                                */
 /* ------------------------------------------------------------------ */
 
-function TextPart({ part }: { part: TextUIPart }): React.JSX.Element {
+function TextPart({ part }: Readonly<{ part: TextUIPart }>): React.JSX.Element {
   return (
     <Streamdown
       mode="streaming"
@@ -164,14 +164,14 @@ function FileAwareLink({
         type="button"
         onClick={() => openFile(ref.path, ref.line)}
         title={ref.path}
-        className="inline cursor-pointer border-0 bg-transparent p-0 font-medium text-blue-600 underline decoration-blue-300 underline-offset-2 hover:text-blue-700"
+        className="inline cursor-pointer border-0 bg-transparent p-0 font-medium text-accent underline decoration-blue-300 underline-offset-2 hover-text-accent"
       >
         {children}
       </button>
     )
   }
   return (
-    <a href={href} target="_blank" rel="noreferrer" className="text-blue-600 underline decoration-blue-300 underline-offset-2 hover:text-blue-700">
+    <a href={href} target="_blank" rel="noreferrer" className="text-accent underline decoration-blue-300 underline-offset-2 hover-text-accent">
       {children}
     </a>
   )
@@ -183,12 +183,12 @@ const markdownComponents: Components = { a: FileAwareLink }
 /* reasoning                                                           */
 /* ------------------------------------------------------------------ */
 
-function ReasoningPart({ part }: { part: ReasoningUIPart }): React.JSX.Element {
+function ReasoningPart({ part }: Readonly<{ part: ReasoningUIPart }>): React.JSX.Element {
   const label =
     part.state === 'streaming' ? 'Thinking…' : 'Thought process'
   return (
     <Collapsible label={label} muted defaultOpen={part.state === 'streaming'}>
-      <pre className="whitespace-pre-wrap break-words text-xs text-neutral-500">
+      <pre className="whitespace-pre-wrap break-words text-xs text-muted">
         {part.text}
       </pre>
     </Collapsible>
@@ -216,22 +216,22 @@ const DATA_RENDERERS: Record<
 
 function DataCard({
   part,
-}: {
+}: Readonly<{
   part: Extract<Part, { type: `data-${string}` }>
-}): React.JSX.Element {
+}>): React.JSX.Element {
   const name = part.type.slice('data-'.length)
   const render = DATA_RENDERERS[name]
   if (render) return render(part.data, part.id)
   return <JsonCard title={name} value={part.data} />
 }
 
-function FilePart({ part }: { part: FileUIPart }): React.JSX.Element {
+function FilePart({ part }: Readonly<{ part: FileUIPart }>): React.JSX.Element {
   if (part.mediaType.startsWith('image')) {
     return (
       <img
         src={part.url}
         alt={part.filename ?? 'attachment'}
-        className="max-h-64 rounded border border-neutral-200"
+        className="max-h-64 rounded border border-subtle"
       />
     )
   }
@@ -244,13 +244,13 @@ function FilePart({ part }: { part: FileUIPart }): React.JSX.Element {
   )
 }
 
-function SourceUrlPart({ part }: { part: SourceUrlUIPart }): React.JSX.Element {
+function SourceUrlPart({ part }: Readonly<{ part: SourceUrlUIPart }>): React.JSX.Element {
   return (
     <a
       href={part.url}
       target="_blank"
       rel="noreferrer"
-      className="my-1 inline-flex items-center gap-1.5 rounded border border-neutral-200 bg-neutral-50 px-2 py-1 text-xs text-blue-600 hover:bg-neutral-100"
+      className="my-1 inline-flex items-center gap-1.5 rounded border border-subtle bg-subtle px-2 py-1 text-xs text-accent hover-bg-raised"
     >
       <Globe className="h-3 w-3" />
       {part.title ?? part.url}
@@ -260,8 +260,8 @@ function SourceUrlPart({ part }: { part: SourceUrlUIPart }): React.JSX.Element {
 
 function SourceDocumentPart({
   part,
-}: {
+}: Readonly<{
   part: SourceDocumentUIPart
-}): React.JSX.Element {
+}>): React.JSX.Element {
   return <Chip icon={FileCode} label={part.title} title={part.filename} />
 }

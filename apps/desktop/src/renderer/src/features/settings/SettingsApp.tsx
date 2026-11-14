@@ -64,24 +64,24 @@ export function SettingsApp(): React.JSX.Element {
   }
 
   return (
-    <div className="flex h-screen flex-col bg-white text-neutral-800 dark:bg-neutral-900 dark:text-neutral-100">
+    <div className="flex h-screen flex-col bg-surface text-default">
       {/* Search header — filters nav items and individual fields. */}
-      <header className="flex shrink-0 items-center gap-2 border-b border-neutral-200 px-3 py-2.5 dark:border-neutral-700">
-        <Search className="h-4 w-4 shrink-0 text-neutral-400" />
+      <header className="flex shrink-0 items-center gap-2 border-b border-subtle px-3 py-2.5">
+        <Search className="h-4 w-4 shrink-0 text-faint" />
         <input
           type="text"
           value={rawQuery}
           onChange={(event) => setRawQuery(event.target.value)}
           placeholder="Search settings"
           spellCheck={false}
-          className="w-full bg-transparent text-sm outline-none placeholder:text-neutral-400"
+          className="w-full bg-transparent text-sm outline-none placeholder-faint"
         />
         {rawQuery && (
           <button
             type="button"
             aria-label="Clear search"
             onClick={() => setRawQuery('')}
-            className="shrink-0 rounded p-0.5 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800"
+            className="shrink-0 rounded p-0.5 text-faint hover-bg-raised hover-text-default"
           >
             <X className="h-3.5 w-3.5" />
           </button>
@@ -90,7 +90,7 @@ export function SettingsApp(): React.JSX.Element {
 
       <div className="flex min-h-0 flex-1">
         {/* Section nav — filtered by the search query. */}
-        <nav className="w-40 shrink-0 overflow-y-auto border-r border-neutral-200 py-2 dark:border-neutral-700">
+        <nav className="w-40 shrink-0 overflow-y-auto border-r border-subtle py-2">
           {visibleSections.map((section) => (
             <button
               key={section.id}
@@ -98,8 +98,8 @@ export function SettingsApp(): React.JSX.Element {
               onClick={() => jumpTo(section.id)}
               className={`block w-full border-r-2 px-4 py-1.5 text-left text-sm ${
                 activeId === section.id
-                  ? 'border-blue-600 bg-blue-50 font-medium text-blue-700 dark:border-blue-400 dark:bg-blue-950/40 dark:text-blue-300'
-                  : 'border-transparent text-neutral-600 hover:bg-neutral-50 dark:text-neutral-300 dark:hover:bg-neutral-800'
+                  ? 'border-accent bg-accent-soft font-medium text-accent'
+                  : 'border-transparent text-secondary hover-bg-subtle'
               }`}
             >
               {section.title}
@@ -112,7 +112,7 @@ export function SettingsApp(): React.JSX.Element {
           {error && (
             <div
               role="alert"
-              className="mb-4 flex items-center gap-2 rounded-md bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-950 dark:text-red-300"
+              className="mb-4 flex items-center gap-2 rounded-md bg-danger-soft px-3 py-2 text-xs text-danger"
             >
               <AlertCircle className="h-3.5 w-3.5 shrink-0" />
               <span className="min-w-0 flex-1">{error}</span>
@@ -127,7 +127,7 @@ export function SettingsApp(): React.JSX.Element {
                 type="button"
                 aria-label="Dismiss"
                 onClick={dismissError}
-                className="shrink-0 text-red-400 hover:text-red-600"
+                className="shrink-0 text-danger hover-text-danger"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -135,11 +135,11 @@ export function SettingsApp(): React.JSX.Element {
           )}
 
           {!loaded || !settings ? (
-            <p className="text-sm text-neutral-400">
+            <p className="text-sm text-faint">
               {loaded ? 'Settings unavailable.' : 'Loading…'}
             </p>
           ) : visibleSections.length === 0 ? (
-            <p className="text-sm text-neutral-400">
+            <p className="text-sm text-faint">
               No settings match “{rawQuery.trim()}”.
             </p>
           ) : (
@@ -170,8 +170,8 @@ export function SettingsApp(): React.JSX.Element {
 
       {/* Save bar — visible while there are unsaved changes or fresh feedback. */}
       {(dirty || saving || savedFlash) && (
-        <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-neutral-200 px-4 py-2.5 dark:border-neutral-700">
-          <span className="text-xs text-neutral-500 dark:text-neutral-400">
+        <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-subtle px-4 py-2.5">
+          <span className="text-xs text-muted">
             {saving ? 'Saving…' : dirty ? 'Unsaved changes' : 'All changes saved'}
           </span>
           <div className="flex gap-2">

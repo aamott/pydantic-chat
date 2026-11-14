@@ -68,7 +68,7 @@ export function PermissionsSection(): React.JSX.Element | null {
               <span className="text-strong text-sm font-medium">
                 {profile.name}
                 {!profile.builtin && (
-                  <span className="ml-1.5 font-normal text-neutral-400">
+                  <span className="ml-1.5 font-normal text-faint">
                     (custom)
                   </span>
                 )}

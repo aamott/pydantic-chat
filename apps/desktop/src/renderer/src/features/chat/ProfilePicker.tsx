@@ -29,7 +29,7 @@ interface ProfilePickerProps {
 export function ProfilePicker({
   chatId,
   disabled,
-}: ProfilePickerProps): React.JSX.Element {
+}: Readonly<ProfilePickerProps>): React.JSX.Element {
   const workspaces = useChatsStore((s) => s.workspaces)
   const updateChat = useChatsStore((s) => s.updateChat)
   const globalProfile = useModelsStore((s) => s.globalProfile)
@@ -73,11 +73,11 @@ export function ProfilePicker({
         aria-haspopup="dialog"
         aria-expanded={open}
         title={`Permission profile: ${titleProfile}`}
-        className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-xs text-neutral-600 hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-50"
+        className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-xs text-secondary hover-bg-raised disabled:cursor-not-allowed disabled:opacity-50"
       >
-        <ShieldCheck className="h-3.5 w-3.5 text-neutral-400" />
+        <ShieldCheck className="h-3.5 w-3.5 text-faint" />
         <span className="max-w-36 truncate">{buttonLabel}</span>
-        <ChevronUp className="h-3.5 w-3.5 text-neutral-400" />
+        <ChevronUp className="h-3.5 w-3.5 text-faint" />
       </button>
 
       {open && (
@@ -140,21 +140,21 @@ function OptionRow({
       type="button"
       aria-current={selected}
       onClick={onPick}
-      className="flex w-full items-start gap-2 rounded-md px-2.5 py-1.5 text-left hover:bg-neutral-100 focus:bg-neutral-100 focus:outline-none"
+      className="flex w-full items-start gap-2 rounded-md px-2.5 py-1.5 text-left hover-bg-raised focus-bg-raised focus:outline-none"
     >
       <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-1 text-xs text-neutral-800">
+        <span className="flex items-center gap-1 text-xs text-default">
           {builtin && (
             <Lock
-              className="h-3 w-3 shrink-0 text-neutral-400"
+              className="h-3 w-3 shrink-0 text-faint"
               aria-label="Built-in profile"
             />
           )}
           <span className="truncate">{name}</span>
         </span>
-        <span className="block text-[11px] text-neutral-400">{description}</span>
+        <span className="block text-[11px] text-faint">{description}</span>
       </span>
-      {selected && <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-600" />}
+      {selected && <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent" />}
     </button>
   )
 }

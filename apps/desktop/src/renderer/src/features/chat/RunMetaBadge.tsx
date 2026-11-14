@@ -34,11 +34,11 @@ export function RunMetaBadge({
   return (
     <span
       title={title}
-      className="inline-flex items-center gap-1.5 rounded border border-neutral-200 bg-neutral-50 px-2 py-0.5 text-[11px] text-neutral-600"
+      className="inline-flex items-center gap-1.5 rounded border border-subtle bg-subtle px-2 py-0.5 text-[11px] text-secondary"
     >
-      <ShieldCheck className="h-3 w-3 text-neutral-400" />
+      <ShieldCheck className="h-3 w-3 text-faint" />
       {label}
-      <span aria-hidden className="text-neutral-300">
+      <span aria-hidden className="text-faint">
         ·
       </span>
       {shortModelName(meta.model)}

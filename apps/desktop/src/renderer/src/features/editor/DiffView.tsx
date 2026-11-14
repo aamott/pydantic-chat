@@ -22,10 +22,10 @@ import {
 } from './diff'
 
 const ROW_TONE: Record<DiffRowKind, string> = {
-  ctx: 'text-neutral-600 hover:bg-neutral-50',
-  add: 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100',
-  del: 'bg-red-50 text-red-800 hover:bg-red-100',
-  gap: 'bg-neutral-50 text-neutral-400 hover:bg-neutral-100',
+  ctx: 'diff-ctx',
+  add: 'diff-add',
+  del: 'diff-del',
+  gap: 'diff-gap',
 }
 
 const ROW_SIGN: Record<DiffRowKind, string> = {
@@ -35,24 +35,24 @@ const ROW_SIGN: Record<DiffRowKind, string> = {
   gap: '⋮',
 }
 
-export function DiffView({ diff }: { diff: FileDiff }): React.JSX.Element {
+export function DiffView({ diff }: Readonly<{ diff: FileDiff }>): React.JSX.Element {
   const openFile = useUiStore((s) => s.openFile)
   // write_file's newText IS the file → new-side rows carry real file lines.
   const anchorLines = diff.tool === 'write_file'
 
   return (
-    <div className="overflow-hidden rounded-md border border-neutral-200 bg-white text-xs">
+    <div className="overflow-hidden rounded-md border border-subtle bg-surface text-xs">
       <button
         type="button"
         onClick={() => openFile(diff.path)}
         title={`Open ${diff.path}`}
-        className="flex w-full items-center gap-1.5 border-b border-neutral-200 bg-neutral-50 px-2.5 py-1.5 text-left hover:bg-neutral-100"
+        className="flex w-full items-center gap-1.5 border-b border-subtle bg-subtle px-2.5 py-1.5 text-left hover-bg-raised"
       >
-        <FileCode className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
-        <span className="truncate font-mono font-medium text-neutral-700">
+        <FileCode className="h-3.5 w-3.5 shrink-0 text-faint" />
+        <span className="truncate font-mono font-medium text-secondary">
           {diff.path}
         </span>
-        <span className="ml-auto shrink-0 text-neutral-400">
+        <span className="ml-auto shrink-0 text-faint">
           {diff.edits.length === 1 ? '1 edit' : `${diff.edits.length} edits`}
         </span>
       </button>
@@ -76,12 +76,12 @@ function EditRows({
   index,
   count,
   onOpen,
-}: {
+}: Readonly<{
   edit: DiffEdit
   index: number
   count: number
   onOpen: (line?: number) => void
-}): React.JSX.Element {
+}>): React.JSX.Element {
   const rows = useMemo(
     () => unifiedLines(edit.oldText, edit.newText),
     [edit.oldText, edit.newText],
@@ -89,7 +89,7 @@ function EditRows({
   return (
     <div>
       {count > 1 && (
-        <div className="border-y border-neutral-200 bg-neutral-100 px-2 py-0.5 text-neutral-500">
+        <div className="border-y border-subtle bg-raised px-2 py-0.5 text-muted">
           @@ edit {index + 1} of {count} @@
         </div>
       )}
@@ -103,10 +103,10 @@ function EditRows({
 function DiffRowView({
   row,
   onOpen,
-}: {
+}: Readonly<{
   row: DiffRow
   onOpen: (line?: number) => void
-}): React.JSX.Element {
+}>): React.JSX.Element {
   const line = row.newNo ?? row.oldNo
   return (
     <button
@@ -115,10 +115,10 @@ function DiffRowView({
       title={line !== undefined ? `Open file at line ${line}` : 'Open file'}
       className={`flex w-full items-baseline px-1 text-left ${ROW_TONE[row.kind]}`}
     >
-      <span className="w-8 shrink-0 select-none pr-1 text-right text-neutral-400">
+      <span className="w-8 shrink-0 select-none pr-1 text-right text-faint">
         {row.oldNo ?? ''}
       </span>
-      <span className="w-8 shrink-0 select-none pr-1 text-right text-neutral-400">
+      <span className="w-8 shrink-0 select-none pr-1 text-right text-faint">
         {row.newNo ?? ''}
       </span>
       <span className="w-4 shrink-0 select-none text-center">

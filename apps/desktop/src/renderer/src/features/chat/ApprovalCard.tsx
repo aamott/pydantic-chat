@@ -106,8 +106,8 @@ export function ApprovalGroup({
   }
 
   return (
-    <div className="my-1.5 rounded-md border border-amber-300 bg-amber-50">
-      <div className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-amber-800">
+    <div className="my-1.5 rounded-md border border-warning bg-warning-soft">
+      <div className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-warning">
         <ShieldQuestion className="h-3.5 w-3.5 shrink-0" />
         <span>
           {parts.length === 1
@@ -125,7 +125,7 @@ export function ApprovalGroup({
           </button>
         )}
       </div>
-      <div className="space-y-1.5 border-t border-amber-200 p-2">
+      <div className="space-y-1.5 border-t border-warning p-2">
         {parts.map((part) => (
           <ApprovalRow
             key={part.approval.id}
@@ -178,15 +178,15 @@ function ApprovalRow({
   }
 
   return (
-    <div className="rounded border border-amber-200 bg-white p-2">
+    <div className="rounded border border-warning bg-surface p-2">
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-medium text-neutral-800">
+          <p className="text-xs font-medium text-default">
             {toolName(part)}
           </p>
           <ArgsSummary input={part.input} />
           {part.approval.requestReason && (
-            <p className="mt-1 text-[11px] italic text-amber-700">
+            <p className="mt-1 text-[11px] italic text-warning">
               {part.approval.requestReason}
             </p>
           )}
@@ -232,7 +232,7 @@ function ApprovalRow({
               }
             }}
             placeholder="Reason for denying (optional)"
-            className="min-w-0 flex-1 rounded border border-neutral-300 px-2 py-1 text-[11px] outline-none focus:border-red-400"
+            className="min-w-0 flex-1 rounded border border-strong px-2 py-1 text-[11px] outline-none focus:border-red-400"
           />
           <button
             type="submit"
@@ -244,7 +244,7 @@ function ApprovalRow({
           <button
             type="button"
             onClick={() => setDenying(false)}
-            className="shrink-0 rounded px-1.5 py-1 text-[11px] text-neutral-500 hover:bg-neutral-100"
+            className="shrink-0 rounded px-1.5 py-1 text-[11px] text-muted hover-bg-raised"
           >
             Cancel
           </button>
@@ -287,7 +287,7 @@ function ArgsSummary({ input }: Readonly<{ input: unknown }>): React.JSX.Element
   }
 
   return (
-    <pre className="mt-1 whitespace-pre-wrap wrap-break-word rounded bg-neutral-100 px-2 py-1 font-mono text-[11px] text-neutral-600">
+    <pre className="mt-1 whitespace-pre-wrap wrap-break-word rounded bg-raised px-2 py-1 font-mono text-[11px] text-secondary">
       {truncateJson(args)}
     </pre>
   )
@@ -301,7 +301,7 @@ function PathLink({ path }: Readonly<{ path: string }>): React.JSX.Element {
       type="button"
       onClick={() => openFile(path)}
       title={`Preview ${path}`}
-      className="font-mono text-[11px] text-blue-600 underline decoration-blue-300 underline-offset-2 hover:text-blue-700"
+      className="font-mono text-[11px] text-accent underline decoration-blue-300 underline-offset-2 hover-text-accent"
     >
       {path}
     </button>
@@ -323,11 +323,11 @@ function EditPreview({
   if (replacement) {
     const extras = edits.length - 1
     return (
-      <div className="overflow-hidden rounded border border-neutral-200 font-mono text-[11px]">
+      <div className="overflow-hidden rounded border border-subtle font-mono text-[11px]">
         <DiffBlock sign="-" text={replacement.oldText} tone="removed" />
         <DiffBlock sign="+" text={replacement.newText} tone="added" />
         {extras > 0 && (
-          <p className="bg-neutral-50 px-2 py-0.5 text-neutral-400">
+          <p className="bg-subtle px-2 py-0.5 text-faint">
             +{extras} more {extras === 1 ? 'edit' : 'edits'}
           </p>
         )}
@@ -338,7 +338,7 @@ function EditPreview({
   const content = stringField(input, 'content')
   if (content !== undefined) {
     return (
-      <pre className="whitespace-pre-wrap break-words rounded border border-neutral-200 bg-neutral-50 px-2 py-1 font-mono text-[11px] text-neutral-600">
+      <pre className="whitespace-pre-wrap break-words rounded border border-subtle bg-subtle px-2 py-1 font-mono text-[11px] text-secondary">
         {truncateLines(content)}
       </pre>
     )
@@ -356,7 +356,7 @@ function DiffBlock({
   tone: 'added' | 'removed'
 }>): React.JSX.Element {
   const toneClass =
-    tone === 'added' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
+    tone === 'added' ? 'bg-success-soft text-success' : 'bg-danger-soft text-danger'
   return (
     <pre
       className={`whitespace-pre-wrap break-words px-2 py-1 ${toneClass}`}

@@ -221,7 +221,7 @@ export function McpServersSection(): React.JSX.Element {
         description="External tool servers the agent may call. Changes apply to the next run; every call still goes through your permission profile."
       />
       {error && (
-        <p className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300">
+        <p className="rounded-md border border-danger bg-danger-soft px-3 py-2 text-sm text-danger">
           {error}
         </p>
       )}
@@ -230,9 +230,9 @@ export function McpServersSection(): React.JSX.Element {
         keywords="mcp server tools stdio http command url headers env enabled"
       >
         {!loaded ? (
-          <p className="text-sm text-neutral-500 dark:text-neutral-400">Loading…</p>
+          <p className="text-sm text-muted">Loading…</p>
         ) : servers.length === 0 && !form ? (
-          <p className="text-sm text-neutral-500 dark:text-neutral-400">
+          <p className="text-sm text-muted">
             No MCP servers configured.
           </p>
         ) : (
@@ -240,7 +240,7 @@ export function McpServersSection(): React.JSX.Element {
             {servers.map((server) => (
               <li
                 key={server.name}
-                className="flex items-center gap-3 rounded-md border border-neutral-200 px-3 py-2 dark:border-neutral-700"
+                className="flex items-center gap-3 rounded-md border border-subtle px-3 py-2"
               >
                 <input
                   type="checkbox"
@@ -250,13 +250,13 @@ export function McpServersSection(): React.JSX.Element {
                   className="accent-blue-600"
                 />
                 <div className="min-w-0 flex-1">
-                  <span className="text-sm font-medium text-neutral-800 dark:text-neutral-200">
+                  <span className="text-sm font-medium text-default">
                     {server.name}
                   </span>
-                  <span className="ml-2 rounded-full bg-neutral-100 px-2 py-0.5 text-xs text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+                  <span className="ml-2 rounded-full bg-raised px-2 py-0.5 text-xs text-muted">
                     {server.transport}
                   </span>
-                  <span className="block truncate font-mono text-xs text-neutral-500 dark:text-neutral-400">
+                  <span className="block truncate font-mono text-xs text-muted">
                     {server.transport === 'stdio'
                       ? [server.command, ...(server.args ?? [])].filter(Boolean).join(' ')
                       : server.url}
@@ -266,7 +266,7 @@ export function McpServersSection(): React.JSX.Element {
                   type="button"
                   onClick={() => setForm(formFromServer(server))}
                   aria-label={`Edit ${server.name}`}
-                  className="rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+                  className="rounded p-1 text-faint hover-bg-raised hover-text-default"
                 >
                   <Pencil className="h-4 w-4" />
                 </button>
@@ -274,7 +274,7 @@ export function McpServersSection(): React.JSX.Element {
                   type="button"
                   onClick={() => void remove(server)}
                   aria-label={`Remove ${server.name}`}
-                  className="rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-red-600 dark:hover:bg-neutral-800"
+                  className="rounded p-1 text-faint hover-bg-raised hover-text-danger"
                 >
                   <Trash2 className="h-4 w-4" />
                 </button>
@@ -295,13 +295,13 @@ export function McpServersSection(): React.JSX.Element {
       </Field>
 
       {form && (
-        <div className="space-y-3 rounded-md border border-neutral-200 p-3 dark:border-neutral-700">
-          <span className="text-sm font-medium text-neutral-800 dark:text-neutral-200">
+        <div className="space-y-3 rounded-md border border-subtle p-3">
+          <span className="text-sm font-medium text-default">
             {form.originalName === null ? 'Add MCP server' : `Edit ${form.originalName}`}
           </span>
           <div className="grid grid-cols-2 gap-3">
             <label className="block space-y-1">
-              <span className="text-xs text-neutral-500 dark:text-neutral-400">Name</span>
+              <span className="text-xs text-muted">Name</span>
               <input
                 type="text"
                 value={form.name}
@@ -311,7 +311,7 @@ export function McpServersSection(): React.JSX.Element {
               />
             </label>
             <label className="block space-y-1">
-              <span className="text-xs text-neutral-500 dark:text-neutral-400">
+              <span className="text-xs text-muted">
                 Transport
               </span>
               <select
@@ -330,7 +330,7 @@ export function McpServersSection(): React.JSX.Element {
           {form.transport === 'stdio' ? (
             <>
               <label className="block space-y-1">
-                <span className="text-xs text-neutral-500 dark:text-neutral-400">
+                <span className="text-xs text-muted">
                   Command
                 </span>
                 <input
@@ -342,7 +342,7 @@ export function McpServersSection(): React.JSX.Element {
                 />
               </label>
               <label className="block space-y-1">
-                <span className="text-xs text-neutral-500 dark:text-neutral-400">
+                <span className="text-xs text-muted">
                   Arguments (space-separated)
                 </span>
                 <input
@@ -354,7 +354,7 @@ export function McpServersSection(): React.JSX.Element {
                 />
               </label>
               <label className="block space-y-1">
-                <span className="text-xs text-neutral-500 dark:text-neutral-400">
+                <span className="text-xs text-muted">
                   Environment (KEY=VALUE per line)
                 </span>
                 <textarea
@@ -369,7 +369,7 @@ export function McpServersSection(): React.JSX.Element {
           ) : (
             <>
               <label className="block space-y-1">
-                <span className="text-xs text-neutral-500 dark:text-neutral-400">
+                <span className="text-xs text-muted">
                   URL
                 </span>
                 <input
@@ -381,7 +381,7 @@ export function McpServersSection(): React.JSX.Element {
                 />
               </label>
               <label className="block space-y-1">
-                <span className="text-xs text-neutral-500 dark:text-neutral-400">
+                <span className="text-xs text-muted">
                   Headers (KEY=VALUE per line)
                 </span>
                 <textarea

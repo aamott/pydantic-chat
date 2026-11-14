@@ -17,7 +17,7 @@ export function Collapsible({
   errored,
   defaultOpen,
   children,
-}: {
+}: Readonly<{
   label: string
   badge?: string
   icon?: ReactNode
@@ -25,19 +25,19 @@ export function Collapsible({
   errored?: boolean
   defaultOpen?: boolean
   children: ReactNode
-}): React.JSX.Element {
+}>): React.JSX.Element {
   const [open, setOpen] = useState(defaultOpen ?? false)
   return (
     <div
       className={`my-1.5 rounded-md border text-left ${
-        errored ? 'border-red-200 bg-red-50' : 'border-neutral-200 bg-neutral-50'
+        errored ? 'border-danger bg-danger-soft' : 'border-subtle bg-subtle'
       }`}
     >
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         className={`flex w-full items-center gap-1.5 px-2.5 py-1.5 text-xs ${
-          muted ? 'text-neutral-500' : 'text-neutral-700'
+          muted ? 'text-muted' : 'text-secondary'
         }`}
       >
         <ChevronRight
@@ -49,15 +49,15 @@ export function Collapsible({
           <span
             className={`ml-auto shrink-0 rounded px-1.5 py-0.5 text-[10px] ${
               errored
-                ? 'bg-red-100 text-red-700'
-                : 'bg-neutral-200 text-neutral-600'
+                ? 'bg-danger-soft text-danger'
+                : 'bg-overlay text-secondary'
             }`}
           >
             {badge}
           </span>
         )}
       </button>
-      {open && <div className="border-t border-neutral-200 px-3 py-2">{children}</div>}
+      {open && <div className="border-t border-subtle px-3 py-2">{children}</div>}
     </div>
   )
 }
@@ -66,19 +66,19 @@ export function KeyValue({
   label,
   value,
   error,
-}: {
+}: Readonly<{
   label: string
   value: string
   error?: boolean
-}): React.JSX.Element {
+}>): React.JSX.Element {
   return (
     <div>
-      <p className={`mb-0.5 font-medium ${error ? 'text-red-600' : 'text-neutral-500'}`}>
+      <p className={`mb-0.5 font-medium ${error ? 'text-danger' : 'text-muted'}`}>
         {label}
       </p>
       <pre
-        className={`whitespace-pre-wrap break-words rounded bg-white px-2 py-1.5 font-mono ${
-          error ? 'text-red-700' : 'text-neutral-700'
+        className={`whitespace-pre-wrap break-words rounded bg-surface px-2 py-1.5 font-mono ${
+          error ? 'text-danger' : 'text-secondary'
         }`}
       >
         {value}
@@ -90,13 +90,13 @@ export function KeyValue({
 export function JsonCard({
   title,
   value,
-}: {
+}: Readonly<{
   title: string
   value: unknown
-}): React.JSX.Element {
+}>): React.JSX.Element {
   return (
     <Collapsible label={title}>
-      <pre className="whitespace-pre-wrap break-words text-xs text-neutral-600">
+      <pre className="whitespace-pre-wrap break-words text-xs text-secondary">
         {truncate(stringify(value))}
       </pre>
     </Collapsible>
@@ -107,15 +107,15 @@ export function Chip({
   icon: Icon,
   label,
   title,
-}: {
+}: Readonly<{
   icon: typeof Paperclip
   label: string
   title?: string
-}): React.JSX.Element {
+}>): React.JSX.Element {
   return (
     <span
       title={title}
-      className="my-1 inline-flex items-center gap-1.5 rounded border border-neutral-200 bg-neutral-50 px-2 py-1 text-xs text-neutral-600"
+      className="my-1 inline-flex items-center gap-1.5 rounded border border-subtle bg-subtle px-2 py-1 text-xs text-secondary"
     >
       <Icon className="h-3 w-3" />
       {label}
@@ -131,18 +131,18 @@ export function FileLink({
   path,
   line,
   children,
-}: {
+}: Readonly<{
   path: string
   line?: number
   children?: ReactNode
-}): React.JSX.Element {
+}>): React.JSX.Element {
   const openFile = useUiStore((s) => s.openFile)
   return (
     <button
       type="button"
       onClick={() => openFile(path, line)}
       title={line !== undefined ? `${path}:${line}` : path}
-      className="cursor-pointer break-all border-0 bg-transparent p-0 text-left font-mono text-blue-600 underline decoration-blue-300 underline-offset-2 hover:text-blue-700"
+      className="cursor-pointer break-all border-0 bg-transparent p-0 text-left font-mono text-accent underline decoration-blue-300 underline-offset-2 hover-text-accent"
     >
       {children ?? (line !== undefined ? `${path}:${line}` : path)}
     </button>
