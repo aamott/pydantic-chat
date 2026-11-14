@@ -698,6 +698,9 @@ export function FileViewer({
        * (the pencil remains as the manual lock/unlock). */
       setImageUrl(null)
       setPreviewOn(mode === 'markdown')
+      /* Preview opens ON for markdown — seed the snapshot now or the first
+       * render shows an empty pane until the toggle is clicked twice. */
+      setPreviewText(file.content)
       markDirty(false)
       setConflict(null)
       setDrift(false)
@@ -795,6 +798,8 @@ export function FileViewer({
       view.dispatch({
         changes: { from: 0, to: view.state.doc.length, insert: loaded.content },
       })
+      /* A visible preview snapshots the doc — it must follow the reset. */
+      setPreviewText(loaded.content)
     }
     markDirty(false)
     setConflict(null)
