@@ -16,6 +16,7 @@ import { useChatsStore } from '../stores/chats'
 import { useModelsStore } from '../stores/models'
 import { useProfilesStore } from '../stores/profiles'
 import { useUiStore } from '../stores/ui'
+import { useUserToolsStore } from '../stores/userTools'
 
 export function chatSummary(overrides: Partial<ChatSummary> = {}): ChatSummary {
   return {
@@ -74,7 +75,7 @@ export function providerGroup(
   }
 }
 
-/** Baseline the three composer-adjacent stores before each test. */
+/** Baseline the singleton stores before each test. */
 export function seedStores(overrides: {
   workspaces?: Workspace[]
   providers?: ModelProviderGroup[]
@@ -100,6 +101,12 @@ export function seedStores(overrides: {
   useProfilesStore.setState({
     profiles: overrides.profiles ?? [],
     loaded: true,
+    error: null,
+  })
+  useUserToolsStore.setState({
+    tools: [],
+    workspaceId: null,
+    loaded: false,
     error: null,
   })
   /* The Composer's draft lives in the ui store — clear it so text never

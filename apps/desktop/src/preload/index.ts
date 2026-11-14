@@ -65,6 +65,29 @@ const api = {
     ipcRenderer.send(IpcChannels.settingsTheme, theme)
   },
 
+  /**
+   * Settings window → main: open `path` in the main window's FileViewer.
+   * Renderer stores are per-window, so `useUiStore.openFile` can't be
+   * invoked cross-window — main focuses the main window and relays the
+   * request to it.
+   */
+  openFileInViewer: (workspaceId: string, path: string): void => {
+    ipcRenderer.send(IpcChannels.openFileInViewer, { workspaceId, path })
+  },
+
+  /** Main window: cross-window file-open requests; returns unsubscribe. */
+  onOpenFileInViewer: (
+    callback: (workspaceId: string, path: string) => void,
+  ): (() => void) => {
+    const listener = (
+      _event: IpcRendererEvent,
+      payload: { workspaceId: string; path: string },
+    ): void => callback(payload.workspaceId, payload.path)
+    ipcRenderer.on(IpcChannels.openFileInViewer, listener)
+    return () =>
+      ipcRenderer.removeListener(IpcChannels.openFileInViewer, listener)
+  },
+
   /** Theme broadcast from another window — subscribe; returns unsubscribe. */
   onTheme: (callback: (theme: string) => void): (() => void) => {
     const listener = (_event: IpcRendererEvent, theme: string): void =>

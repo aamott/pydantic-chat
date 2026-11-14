@@ -40,6 +40,7 @@ import {
   TOOL_GROUP_LABELS,
 } from '../../../lib/profiles'
 import { useProfilesStore } from '../../../stores/profiles'
+import { useSectionWorkspace } from '../useSectionWorkspace'
 import { iconButtonClass } from '../../../lib/ui'
 import {
   AddButton,
@@ -58,7 +59,12 @@ function errorText(error: unknown, fallback: string): string {
 }
 
 /** Catalog groups rendered in a stable order. */
-const TOOL_GROUP_ORDER: ToolGroup[] = ['filesystem', 'shell', 'planning']
+const TOOL_GROUP_ORDER: ToolGroup[] = [
+  'filesystem',
+  'shell',
+  'planning',
+  'user',
+]
 
 /**
  * The one expanded row's state. `id`/`readOnly` are meta (which profile,
@@ -94,6 +100,10 @@ export function ToolProfilesSection(): React.JSX.Element {
   const [draft, setDraft] = useState<DraftState | null>(null)
   /** Id of a profile with an in-flight duplicate/delete, or true for save. */
   const [busy, setBusy] = useState<string | boolean>(false)
+  /* Workspace scope for the catalog: `?workspace_id=` adds that
+   * workspace's user-tool rows and applies its MCP override mask — the
+   * picker then matches what a run there would expose. */
+  const { id: workspaceId } = useSectionWorkspace()
 
   /* The catalog is flat: `prefix: false` rows are builtin tools (match
    * `tools`), `prefix: true` rows are `{server}_*` MCP entries (match
@@ -110,8 +120,11 @@ export function ToolProfilesSection(): React.JSX.Element {
 
   const loadCatalogs = useCallback(async () => {
     try {
+      const scope = workspaceId
+        ? `?workspace_id=${encodeURIComponent(workspaceId)}`
+        : ''
       const [cat, sk] = await Promise.all([
-        apiJson<ToolCatalog>('/api/tool-catalog'),
+        apiJson<ToolCatalog>(`/api/tool-catalog${scope}`),
         apiJson<SkillsOut>('/api/skills'),
       ])
       setCatalog(cat)
@@ -120,7 +133,7 @@ export function ToolProfilesSection(): React.JSX.Element {
     } catch (e) {
       setError(errorText(e, "Couldn't load the tool catalog"))
     }
-  }, [])
+  }, [workspaceId])
 
   useEffect(() => {
     void ensureLoaded()

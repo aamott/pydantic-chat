@@ -26,6 +26,31 @@ export function App(): React.JSX.Element {
     createWorkspace,
   ])
 
+  /* Cross-window file-open requests (the settings window's user-tools
+   * Edit affordance). The FileViewer binds to the active workspace, so
+   * switch first when the file belongs to another — selectWorkspace can
+   * bail on a declined dirty-buffer confirm, which we honor by not
+   * opening. `setWorkspaceContext` runs eagerly here because App's own
+   * context effect fires on the next render, after openFile may already
+   * have run (it keys `openFiles` by the current context). */
+  useEffect(
+    () =>
+      window.api.onOpenFileInViewer((workspaceId, path) => {
+        void (async () => {
+          const chats = useChatsStore.getState()
+          if (chats.activeWorkspaceId !== workspaceId) {
+            await chats.selectWorkspace(workspaceId)
+            if (useChatsStore.getState().activeWorkspaceId !== workspaceId) {
+              return
+            }
+          }
+          useUiStore.getState().setWorkspaceContext(workspaceId)
+          useUiStore.getState().openFile(path)
+        })()
+      }),
+    [],
+  )
+
   /* Keep the ui store's workspace context in sync — restores the incoming
    * workspace's remembered open file and stashes the outgoing one. The
    * dirty-buffer guard runs earlier, inside selectWorkspace/selectChat. */

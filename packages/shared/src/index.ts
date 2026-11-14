@@ -291,6 +291,70 @@ export interface ToolCatalogEntry {
 export type ToolCatalog = ToolCatalogEntry[]
 
 /* ------------------------------------------------------------------ */
+/* User tools API contract (/api/user-tools)                            */
+/* ------------------------------------------------------------------ */
+
+/** Where a user-tool file was discovered: app data dir or a workspace. */
+export type UserToolOrigin = 'global' | 'workspace'
+
+/** One public function ast-discovered in a user-tool file. */
+export interface UserToolFunction {
+  name: string
+  docstring?: string | null
+}
+
+/** A public function that cannot become a tool (illegal name), and why. */
+export interface SkippedUserToolFunction {
+  name: string
+  reason: string
+}
+
+/**
+ * One discovered user-tool file in `GET /api/user-tools`. `key` is
+ * `{origin}:{rel_path}` — the registry's enable flag and the PATCH/DELETE
+ * addressing scheme. `functions` become `user_<name>` tools;
+ * `skipped_functions` are public defs whose names violate tool-name rules;
+ * `error` is an ast-parse failure; `skipped_reason` explains a file that
+ * contributes no tools at all (shadowed, no usable functions).
+ */
+export interface UserTool {
+  key: string
+  name: string
+  origin: UserToolOrigin
+  rel_path: string
+  enabled: boolean
+  docstring?: string | null
+  functions: UserToolFunction[]
+  skipped_functions: SkippedUserToolFunction[]
+  error?: string | null
+  skipped_reason?: string | null
+}
+
+/** `PATCH /api/user-tools` body — the enabled toggle for one file. */
+export interface UserToolPatch {
+  key: string
+  enabled: boolean
+}
+
+/**
+ * `POST /api/user-tools` body — create a tool file on disk. `filename`
+ * is a bare `*.py` name (`^[a-z0-9_][a-z0-9_-]*\.py$`); `source` defaults
+ * to a starter template server-side; `workspace_id` is required when
+ * `origin` is `'workspace'`.
+ */
+export interface UserToolCreate {
+  origin: UserToolOrigin
+  workspace_id?: string | null
+  filename: string
+  source?: string | null
+}
+
+/** `GET`/`PUT /api/user-tools/source` body — one tool file's text. */
+export interface UserToolSource {
+  source: string
+}
+
+/* ------------------------------------------------------------------ */
 /* Skills API contract (GET /api/skills)                               */
 /* ------------------------------------------------------------------ */
 
@@ -349,4 +413,6 @@ export const IpcChannels = {
   settingsTheme: 'settings:theme',
   /** renderer → main: open a workspace file with the OS default app. */
   shellOpenPath: 'shell:open-path',
+  /** settings → main → main renderer: open a file in the FileViewer. */
+  openFileInViewer: 'file:open-in-viewer',
 } as const

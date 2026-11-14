@@ -197,6 +197,58 @@ describe('encodeToolSelection', () => {
   })
 })
 
+describe('user_* catalog entries', () => {
+  /* `user_<func>` rows are exact-name catalog entries (group 'user',
+   * prefix: false) — they flow through the plain `tools` allowlist, not
+   * `tool_prefixes`. */
+  const ALL_TOOLS = [...TOOLS, 'user_greet', 'user_fetch']
+
+  it('expands and re-encodes an explicit user-tool selection', () => {
+    const checked = checkedFromProfile(
+      profile({
+        tools: ['read_file', 'user_greet'],
+        tool_prefixes: [...PREFIXES],
+      }),
+      ALL_TOOLS,
+      PREFIXES,
+      SKILLS,
+    )
+    expect(checked.tools).toEqual(new Set(['read_file', 'user_greet']))
+    expect(checked.prefixes).toEqual(new Set(PREFIXES))
+
+    const wire = encodeToolSelection(
+      checked.tools,
+      checked.prefixes,
+      ALL_TOOLS,
+      PREFIXES,
+    )
+    // Partial selection → explicit lists on both sides (see above).
+    expect(wire.tools).toEqual(['read_file', 'user_greet'])
+    expect(wire.tool_prefixes).toEqual(PREFIXES)
+
+    /* The wire form round-trips: re-expanding it against the same catalog
+     * reproduces the checked set. */
+    const again = checkedFromProfile(
+      profile({ tools: wire.tools, tool_prefixes: wire.tool_prefixes }),
+      ALL_TOOLS,
+      PREFIXES,
+      SKILLS,
+    )
+    expect(again.tools).toEqual(new Set(['read_file', 'user_greet']))
+    expect(again.prefixes).toEqual(new Set(PREFIXES))
+  })
+
+  it('drops user_* names absent from the catalog (disabled tool files)', () => {
+    const checked = checkedFromProfile(
+      profile({ tools: ['user_deleted', 'read_file'] }),
+      ALL_TOOLS,
+      [],
+      [],
+    )
+    expect(checked.tools).toEqual(new Set(['read_file']))
+  })
+})
+
 describe('partitionProfiles', () => {
   it('splits builtin and custom profiles preserving order', () => {
     const manual = profile({ id: 'manual', name: 'Manual', builtin: true })

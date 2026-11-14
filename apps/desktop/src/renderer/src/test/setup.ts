@@ -50,6 +50,8 @@ const apiStub: Api = {
   onBackendStatus: () => () => {},
   notifyTheme: () => {},
   onTheme: () => () => {},
+  openFileInViewer: () => {},
+  onOpenFileInViewer: () => () => {},
 }
 
 if (typeof window !== 'undefined') {

@@ -9,6 +9,7 @@ import {
   type Workspace,
 } from '@pydantic-chat/shared'
 import { resolveWorkspaceFile } from './workspaceFile'
+import { getMainWindow } from './windows'
 
 export interface IpcDeps {
   getBackendInfo: () => BackendInfo | null
@@ -55,6 +56,22 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       if (!workspace) throw new Error('Workspace not found')
       const resolved = resolveWorkspaceFile(workspace.path, path)
       return shell.openPath(resolved)
+    },
+  )
+
+  /* Settings window → main window: open a workspace file in the
+   * FileViewer. Zustand stores are per-window, so the settings renderer
+   * can't call `useUiStore.openFile` itself — focus the main window and
+   * forward the request to it (App subscribes via onOpenFileInViewer). */
+  ipcMain.on(
+    IpcChannels.openFileInViewer,
+    (_event, payload: { workspaceId: string; path: string }) => {
+      const win = getMainWindow()
+      if (!win) return
+      if (win.isMinimized()) win.restore()
+      win.show()
+      win.focus()
+      win.webContents.send(IpcChannels.openFileInViewer, payload)
     },
   )
 

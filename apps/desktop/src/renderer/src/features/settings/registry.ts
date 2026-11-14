@@ -14,6 +14,7 @@ import { PermissionsSection } from './sections/PermissionsSection'
 import { ApiKeysSection } from './sections/ApiKeys'
 import { McpServersSection } from './sections/McpServersSection'
 import { ToolProfilesSection } from './sections/ToolProfilesSection'
+import { UserToolsSection } from './sections/UserToolsSection'
 
 export interface SettingsSection {
   /** Stable id — nav keys and `settings-section-{id}` anchor targets. */
@@ -63,6 +64,14 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
       'mcp server tools stdio http command args arguments env environment url headers enabled external tool servers model context protocol',
     ],
     component: McpServersSection,
+  },
+  {
+    id: 'user-tools',
+    title: 'User Tools',
+    keywords: [
+      'user tools custom tool python file functions global workspace devin user_ create edit source enabled',
+    ],
+    component: UserToolsSection,
   },
   {
     id: 'api-keys',
