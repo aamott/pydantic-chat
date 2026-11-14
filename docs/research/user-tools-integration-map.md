@@ -53,7 +53,7 @@ def keep(ctx, tool_def) -> bool:
 - Composition: `_skills_capabilities` (`factory.py:233-244`) puts workspace **first** so project shadows system; `skills=[]` omits the capability; `None` = all; names → `include=frozenset`.
 - Editor catalog: `GET /api/skills` (`api/profiles.py:213-253`) calls `.load()` outside a run, tags `origin="system"|"workspace"`, reports `skipped`.
 
-**User-tools mirror:** `data_dir()/tools` (global, seeded or empty) + `WORKSPACE_TOOL_DIRS` (e.g. `('.devin/tools', '.agents/tools', '.claude/tools')`), workspace-first precedence, `GET /api/user-tools`-style catalog endpoint reporting `origin` + skipped entries with reasons.
+**User-tools mirror:** `data_dir()/tools` (global, seeded or empty) + `WORKSPACE_TOOL_DIRS` (`('.pydantic-chat/tools',)` — the app's own namespace; no third-party convention exists), workspace-first precedence, `GET /api/user-tools`-style catalog endpoint reporting `origin` + skipped entries with reasons.
 
 ## 5. Storage (`app/db/`)
 
@@ -69,7 +69,7 @@ def keep(ctx, tool_def) -> bool:
 - Per-workspace enable UI: `WorkspaceMcpPicker.tsx` — mask semantics (entry replaces global flag; equal-to-global drops the entry; emptied mask → `null`) is directly reusable.
 - Editor: `FileViewer.tsx` is already fully writable CodeMirror 6 (PUT `/api/files` with `if_match` sha256 conflict guard, 409 conflict banner + diff); `.py` gets Python highlighting (`files.py:77` suffix map; `FileExplorer.tsx:80` icon). Two catches:
   - `/api/files` is workspace-confined — **global tools in `data_dir()/tools` are unreachable** by it (see §7).
-  - `/api/files/tree` hides dotdirs: `rg --files` skips hidden files and `_walk_files` skips `name.startswith('.')` (`files.py:455-471`) — `.devin/tools/*.py` won't appear in FileExplorer. They ARE readable/writable by explicit path (`_resolve_workspace_file` doesn't block dotfiles), so a tools UI can `GET`/`PUT` them by path, but needs its own list (or a show-hidden toggle).
+  - `/api/files/tree` hides dotdirs: `rg --files` skips hidden files and `_walk_files` skips `name.startswith('.')` (`files.py:455-471`) — `.pydantic-chat/tools/*.py` won't appear in FileExplorer. They ARE readable/writable by explicit path (`_resolve_workspace_file` doesn't block dotfiles), so a tools UI can `GET`/`PUT` them by path, but needs its own list (or a show-hidden toggle).
 - A dedicated "Tools" settings section is the cleaner call: the profiles UI is a *picker over a catalog*, while tool CRUD (name/enabled/source editing) is a registry like MCP servers — reusing `McpServersSection`'s form pattern, with `.py` source edits routed to `FileViewer` (workspace-local) or a textarea/`PUT` endpoint (global).
 
 ## 7. Workspace confinement — `_resolve_workspace_file` (`app/api/files.py:257-288`)
@@ -84,7 +84,7 @@ for candidate in (lexical, resolved):
 
 - Guards: `_require_workspace` 404 (`514-521`), `_existing_root` resolves + `is_dir` 404 (`524-532`), `PROTECTED_PATTERNS` (`56-64`: `.git`, `.env*`, `*.pem`, `*.key`, `secrets*`, `.pydantic-ai-harness/**`) checked on both lexical and resolved spellings.
 - Write (`_write_file_bytes`, `361-425`): existing regular file only (**404 on missing — PUT cannot create files**), NUL rejected, 2 MB cap, `if_match` sha256 → 409, temp-file + `os.replace` atomic write preserving mode.
-- A workspace-local tools API (`<root>/.devin/tools/*.py`) must replicate this confinement and add create semantics; also decide whether `**/tools` belongs in `PROTECTED_PATTERNS` — today there's a precedent for hiding agent-internal dirs (`.pydantic-ai-harness`), and **the agent's own FileSystem tools can read/write `.devin/tools` unprotected**, meaning the model could rewrite its own tool code.
+- A workspace-local tools API (`<root>/.pydantic-chat/tools/*.py`) must replicate this confinement and add create semantics; also decide whether `**/tools` belongs in `PROTECTED_PATTERNS` — today there's a precedent for hiding agent-internal dirs (`.pydantic-ai-harness`), and **the agent's own FileSystem tools can read/write `.pydantic-chat/tools` unprotected**, meaning the model could rewrite its own tool code.
 - Global tool sources (`data_dir()/tools`) sit outside every workspace → never route through `_resolve_workspace_file`; use a dedicated endpoint jailed to that dir (same lexical+resolved double check), or store source inline in the `user_tools` registry and sidestep the file API entirely.
 
 ## 8. How the model sees tools

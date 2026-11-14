@@ -8,13 +8,14 @@ Discovery dirs (verified against ``pydantic-ai-slim==2.68.0`` /
 ``pydantic-ai-harness==0.68.0``):
 
 - Global: ``data_dir()/tools/*.py``.
-- Workspace-local, in precedence order: ``<root>/.devin/tools``,
-  ``<root>/.agents/tools``, ``<root>/.claude/tools`` (mirrors
-  ``WORKSPACE_SKILL_DIRS`` in ``app.profiles``).
+- Workspace-local: ``<root>/.pydantic-chat/tools`` — the app's own
+  namespace. Unlike ``WORKSPACE_SKILL_DIRS`` (``.claude/skills`` & co.)
+  there is no third-party convention for tool dirs, so the dir is named
+  for the app.
 
-Workspace files shadow global files of the same *filename*; within the
-workspace dirs the earlier dir wins. Shadowing is by basename, so
-``.devin/tools/greet.py`` masks a global ``greet.py``.
+Workspace files shadow global files of the same *filename*. Shadowing is
+by basename, so ``.pydantic-chat/tools/greet.py`` masks a global
+``greet.py``.
 
 Two consumers, two read strategies:
 
@@ -83,16 +84,13 @@ USER_TOOLS_KEY = "user_tools"
 
 _SPECS_ADAPTER = TypeAdapter(list[UserToolSpec])
 
-WORKSPACE_TOOL_DIRS: tuple[str, ...] = (
-    ".devin/tools",
-    ".agents/tools",
-    ".claude/tools",
-)
-"""Conventional per-workspace tool dirs, in precedence order.
+WORKSPACE_TOOL_DIRS: tuple[str, ...] = (".pydantic-chat/tools",)
+"""Per-workspace tool dirs, in precedence order.
 
-``.devin/tools`` is first because it is the canonical write target
-(``POST /api/user-tools`` creates workspace files there); the ``.agents``
-and ``.claude`` spellings mirror ``WORKSPACE_SKILL_DIRS``.
+``.pydantic-chat`` is the app's own namespace (same idea as the
+``.pydantic-ai-harness`` pattern already in ``PROTECTED_PATTERNS``); the
+first entry is the canonical write target — ``POST /api/user-tools``
+creates workspace files there.
 """
 
 TOOL_NAME_PREFIX = "user_"
@@ -201,7 +199,7 @@ class DiscoveredUserToolFile:
     origin: UserToolOrigin
     rel_path: str
     """POSIX path under its base dir's parent: ``greet.py`` (global) or
-    ``.devin/tools/greet.py`` (workspace)."""
+    ``.pydantic-chat/tools/greet.py`` (workspace)."""
     path: Path
     """Absolute filesystem path."""
     shadowed_by: str | None = None

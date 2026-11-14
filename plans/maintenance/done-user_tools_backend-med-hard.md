@@ -4,8 +4,8 @@
 
 Let users write plain Python functions that become LLM tools (`user_<name>`),
 discovered from `data_dir()/tools/*.py` (global) and
-`<workspace>/.devin/tools/*.py`, `<workspace>/.agents/tools/*.py`,
-`<workspace>/.claude/tools/*.py` (workspace-local, skills-symmetric, workspace
+`<workspace>/.pydantic-chat/tools/*.py` (workspace-local, app-owned
+namespace — no third-party convention exists for tool dirs — workspace
 shadows global). In-process exec — user-authored code, no Monty (Monty is for
 LLM-authored tools, see `pending-user_tools_monty-low-hard.md`).
 
@@ -55,7 +55,7 @@ Research: `docs/research/user-tools-harness-apis.md` (exact APIs),
   ast-parsed, no exec.
 - `POST /api/user-tools` — `{origin, workspace_id?, filename, source?}`
   creates a file (template source if omitted). Global → `data_dir()/tools`;
-  workspace → `<root>/.devin/tools`.
+  workspace → `<root>/.pydantic-chat/tools`.
 - `PATCH /api/user-tools` — `{key, enabled}` toggle.
 - `GET /api/user-tools/source?key=&workspace_id=` → `{source}`; 
   `PUT /api/user-tools/source` → `{key, workspace_id?, source}` — jailed
@@ -71,7 +71,7 @@ Research: `docs/research/user-tools-harness-apis.md` (exact APIs),
 
 ## Security notes
 
-- `.devin/tools` (and `.agents/tools`, `.claude/tools`) are writable by the
+- `.pydantic-chat/tools` is writable by the
   agent's FileSystem tools — the model could rewrite its own tools (takes
   effect next run). Add `**/tools` to `PROTECTED_PATTERNS` in
   `app/api/files.py`? Consider — but note `.devin/skills` is unprotected
@@ -123,7 +123,7 @@ Research: `docs/research/user-tools-harness-apis.md` (exact APIs),
 
 - `app/user_tools.py` — `UserToolSpec` registry triple
   (`load_/save_/parse_user_tools`, `USER_TOOLS_KEY`), `WORKSPACE_TOOL_DIRS`
-  = `(.devin/tools, .agents/tools, .claude/tools)`, discovery with
+  = `('.pydantic-chat/tools',)`, discovery with
   workspace-shadows-global basename precedence, `ast`-only
   `parse_user_tool_file`, digest-keyed `sys.modules` exec loader
   (`load_user_tool_module` — own implementation; harness
@@ -165,6 +165,6 @@ Research: `docs/research/user-tools-harness-apis.md` (exact APIs),
   recognized tool dir (`global:x.py` or `workspace:<tooldir>/x.py`).
 - `DELETE` is 204 when the file is gone but a registry row exists (prunes
   it); 404 only when neither exists.
-- Workspace tool keys are workspace-agnostic: `workspace:.devin/tools/x.py`
+- Workspace tool keys are workspace-agnostic: `workspace:.pydantic-chat/tools/x.py`
   is one flag applied in whichever workspace that rel-path exists (no
   per-workspace mask in v1).

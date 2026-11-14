@@ -4,7 +4,7 @@
  *
  * The listing is the backend's merged discovery+registry view
  * (`GET /api/user-tools`) — global files under the app data dir, plus the
- * resolved workspace's `.devin/tools` & co. when a workspace is known.
+ * resolved workspace's `.pydantic-chat/tools` when a workspace is known.
  * Enabled flags are immediate writes (`PATCH`), same pattern as MCP
  * servers — not the AppSettings draft. Every write refetches the listing
  * (see stores/userTools.ts).
@@ -18,7 +18,7 @@
  * component-local and not trivially extractable (v1 trade-off).
  */
 import { useEffect, useState } from 'react'
-import { Check, Pencil, Trash2, X } from 'lucide-react'
+import { Check, CircleHelp, Pencil, Trash2, X } from 'lucide-react'
 import type { UserTool, UserToolCreate, UserToolOrigin } from '@pydantic-chat/shared'
 import { iconButtonClass, confirmBannerClass } from '../../../lib/ui'
 import { useUserToolsStore } from '../../../stores/userTools'
@@ -38,7 +38,37 @@ import {
 const STEM_RE = /^[a-z0-9_][a-z0-9_-]*$/
 
 /** Canonical workspace tool dir — matches the backend's create target. */
-const WORKSPACE_TOOL_DIR = '.devin/tools'
+const WORKSPACE_TOOL_DIR = '.pydantic-chat/tools'
+
+/** Minimal tool shape rendered in the help panel's code block. */
+const EXAMPLE_SNIPPET = `def word_count(text: str) -> int:
+    """Count the words in \`text\`."""
+    return len(text.split())
+`
+
+/** Source POSTed by "Create example" — string, math, and async shapes. */
+const EXAMPLE_SOURCE = `"""Example user tools — edit or delete freely.
+
+Every public top-level function becomes a \`user_<name>\` tool: type
+hints become parameters and the docstring is the description the model
+reads when deciding whether to call it.
+"""
+
+
+def word_count(text: str) -> int:
+    """Count the words in \`text\`."""
+    return len(text.split())
+
+
+def add(a: float, b: float) -> float:
+    """Add two numbers and return the sum."""
+    return a + b
+
+
+async def shout(text: str) -> str:
+    """Return \`text\` uppercased — async functions work too."""
+    return text.upper()
+`
 
 /** Blank add-form state; origin defaults to the current workspace. */
 interface AddForm {
@@ -70,6 +100,8 @@ export function UserToolsSection(): React.JSX.Element {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [draft, setDraft] = useState<SourceDraft | null>(null)
   const [busy, setBusy] = useState(false)
+  const [showHelp, setShowHelp] = useState(false)
+  const [exampleBusy, setExampleBusy] = useState(false)
 
   useEffect(() => {
     void ensureLoaded(workspaceId)
@@ -111,20 +143,56 @@ export function UserToolsSection(): React.JSX.Element {
     }
   }
 
+  /** POST the canned example file through the normal create flow. */
+  const createExample = async (): Promise<void> => {
+    if (exampleBusy) return
+    const workspaceTool = workspaceId !== null
+    setExampleBusy(true)
+    const ok = await create({
+      origin: workspaceTool ? 'workspace' : 'global',
+      workspace_id: workspaceTool ? workspaceId : null,
+      filename: 'example_tools.py',
+      source: EXAMPLE_SOURCE,
+    } satisfies UserToolCreate)
+    setExampleBusy(false)
+    /* The refetched listing shows the new row; closing the panel also
+     * prevents a second click 409ing on the existing file. */
+    if (ok) setShowHelp(false)
+  }
+
   const banner = storeError
   const formValid = form !== null && STEM_RE.test(form.filename.trim())
 
   return (
     <div className="space-y-5">
-      <SectionHeading
-        title="User Tools"
-        description="Python files whose public functions become user_<name> agent tools. Global tools apply to every workspace; workspace tools live in .devin/tools inside that workspace. Changes apply to the next run."
-      />
+      <div className="flex items-start justify-between gap-2">
+        <SectionHeading
+          title="User Tools"
+          description="Python files whose public functions become user_<name> agent tools. Global tools apply to every workspace; workspace tools live in .pydantic-chat/tools inside that workspace. Changes apply to the next run."
+        />
+        <button
+          type="button"
+          onClick={() => setShowHelp((v) => !v)}
+          aria-label="How user tools work"
+          aria-expanded={showHelp}
+          title="How user tools work"
+          className={`mt-0.5 shrink-0 ${iconButtonClass({ muted: true })}`}
+        >
+          <CircleHelp className="h-4 w-4" />
+        </button>
+      </div>
+      {showHelp && (
+        <HelpPanel
+          workspaceScoped={workspaceId !== null}
+          busy={exampleBusy}
+          onCreateExample={() => void createExample()}
+        />
+      )}
       {banner && <p className={errorBannerClass}>{banner}</p>}
       <Field
         label="Tool files"
         hint="Each file lists its discovered functions; a file with a parse error or no public functions contributes no tools."
-        keywords="user tools custom python functions workspace global devin user_"
+        keywords="user tools custom python functions workspace global pydantic-chat user_"
       >
         {!loaded ? (
           <p className="text-sm text-muted">Loading…</p>
@@ -428,5 +496,61 @@ function ToolRow({
         </>
       )}
     </li>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/* "?" help panel — where files live + the def → tool rule             */
+/* ------------------------------------------------------------------ */
+
+function HelpPanel({
+  workspaceScoped,
+  busy,
+  onCreateExample,
+}: Readonly<{
+  /** Whether the example will land in the workspace dir vs. global. */
+  workspaceScoped: boolean
+  busy: boolean
+  onCreateExample: () => void
+}>): React.JSX.Element {
+  return (
+    <div className="space-y-3 rounded-md border border-subtle p-3 text-xs text-secondary">
+      <ul className="list-disc space-y-1.5 pl-4">
+        <li>
+          <span className="font-medium text-default">Where files live:</span>{' '}
+          global tools go in the app data <code>tools/</code> dir and apply
+          to every workspace; workspace tools go in{' '}
+          <code>.pydantic-chat/tools/</code> inside that workspace.
+        </li>
+        <li>
+          <span className="font-medium text-default">The rule:</span> every
+          public top-level <code>def</code>/<code>async def</code> becomes a{' '}
+          <code>user_&lt;name&gt;</code> tool — type hints become
+          parameters, the docstring is the description the model sees.
+        </li>
+        <li>
+          <span className="font-medium text-default">Approval:</span> calls
+          are gated by the chat's permission profile like any other tool.
+        </li>
+      </ul>
+      <pre className="overflow-x-auto rounded-md bg-raised p-2 font-mono text-secondary">
+        {EXAMPLE_SNIPPET}
+      </pre>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onCreateExample}
+          disabled={busy}
+          className={secondaryButtonClass}
+        >
+          Create example_tools.py
+        </button>
+        <span className="text-faint">
+          {workspaceScoped
+            ? `in ${WORKSPACE_TOOL_DIR}/ (this workspace)`
+            : 'in the global tools dir (all workspaces)'}
+        </span>
+      </div>
+    </div>
   )
 }

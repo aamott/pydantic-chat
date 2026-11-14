@@ -20,7 +20,7 @@ frontend surfaces).
   → `POST /api/user-tools` creates the file with a commented template →
   immediately open it for editing.
 - Editing: workspace tools open in the existing FileViewer (`openFile` the
-  `.devin/tools/<file>.py` path — note the file tree hides dotdirs so a
+  `.pydantic-chat/tools/<file>.py` path — note the file tree hides dotdirs so a
   direct link from the section is the navigation path). Global tools edit
   inline via `GET`/`PUT /api/user-tools/source` in a simple textarea or
   CodeMirror (check if a lightweight shared CM editor exists to reuse —
@@ -33,7 +33,7 @@ frontend surfaces).
 
 ## Notes
 
-- `.devin/tools/*.py` editable via FileViewer but invisible in the file
+- `.pydantic-chat/tools/*.py` editable via FileViewer but invisible in the file
   explorer (dotdirs skipped) — the section's "Edit" affordance is the
   entry point; don't build a custom tree.
 - `PUT /api/files` can't create files — tool creation goes through

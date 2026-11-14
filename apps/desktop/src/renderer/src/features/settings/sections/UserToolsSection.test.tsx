@@ -33,10 +33,10 @@ const GLOBAL_TOOL: UserTool = {
 }
 
 const WS_TOOL: UserTool = {
-  key: 'workspace:.devin/tools/proj.py',
+  key: 'workspace:.pydantic-chat/tools/proj.py',
   name: 'proj',
   origin: 'workspace',
-  rel_path: '.devin/tools/proj.py',
+  rel_path: '.pydantic-chat/tools/proj.py',
   enabled: false,
   functions: [{ name: 'build', docstring: null }],
   skipped_functions: [],
@@ -63,7 +63,7 @@ const SHADOWED_TOOL: UserTool = {
   enabled: true,
   functions: [],
   skipped_functions: [],
-  skipped_reason: 'shadowed by workspace:.devin/tools/dup.py',
+  skipped_reason: 'shadowed by workspace:.pydantic-chat/tools/dup.py',
 }
 
 const ALL_TOOLS = [GLOBAL_TOOL, WS_TOOL, BROKEN_TOOL, SHADOWED_TOOL]
@@ -197,7 +197,7 @@ describe('UserToolsSection', () => {
     await waitFor(() =>
       expect(openSpy).toHaveBeenCalledWith(
         'ws-1',
-        '.devin/tools/my_tools.py',
+        '.pydantic-chat/tools/my_tools.py',
       ),
     )
   })
@@ -208,7 +208,7 @@ describe('UserToolsSection', () => {
     fireEvent.click(
       await screen.findByRole('button', { name: /Edit proj/i }),
     )
-    expect(openSpy).toHaveBeenCalledWith('ws-1', '.devin/tools/proj.py')
+    expect(openSpy).toHaveBeenCalledWith('ws-1', '.pydantic-chat/tools/proj.py')
     // No inline source fetch for workspace tools.
     expect(apiJsonMock).not.toHaveBeenCalledWith(
       expect.stringContaining('/api/user-tools/source'),
@@ -250,5 +250,57 @@ describe('UserToolsSection', () => {
     })
     const create = screen.getByRole('button', { name: /Create/i })
     expect((create as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('toggles the help panel from the header "?" button', async () => {
+    render(<UserToolsSection />)
+    await screen.findByText('greet')
+
+    const toggle = screen.getByRole('button', {
+      name: /How user tools work/i,
+    })
+    // Collapsed by default — no help text or example snippet.
+    expect(screen.queryByText(/Where files live/)).toBeNull()
+    fireEvent.click(toggle)
+    expect(screen.getByText(/Where files live/)).toBeTruthy()
+    // The dir appears in both the bullet and the create-button hint.
+    expect(
+      screen.getAllByText(/\.pydantic-chat\/tools\//).length,
+    ).toBeGreaterThan(0)
+    expect(screen.getByText(/def word_count/)).toBeTruthy()
+    fireEvent.click(toggle)
+    expect(screen.queryByText(/Where files live/)).toBeNull()
+  })
+
+  it('"Create example" POSTs the canned source through the create flow', async () => {
+    render(<UserToolsSection />)
+    await screen.findByText('greet')
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /How user tools work/i }),
+    )
+    fireEvent.click(
+      screen.getByRole('button', { name: /Create example_tools\.py/i }),
+    )
+
+    await waitFor(() =>
+      expect(apiJsonMock).toHaveBeenCalledWith(
+        '/api/user-tools',
+        expect.objectContaining({ method: 'POST' }),
+      ),
+    )
+    const body = lastBody()
+    expect(body).toMatchObject({
+      origin: 'workspace',
+      workspace_id: 'ws-1',
+      filename: 'example_tools.py',
+    })
+    // The canned source carries the documented function shapes.
+    expect(String(body.source)).toContain('def word_count')
+    expect(String(body.source)).toContain('async def')
+    // The panel closed so the refetched row is in view.
+    await waitFor(() =>
+      expect(screen.queryByText(/Where files live/)).toBeNull(),
+    )
   })
 })

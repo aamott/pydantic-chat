@@ -3,7 +3,7 @@
 The registry is one JSON row in the settings KV table (``user_tools`` — see
 :mod:`app.user_tools`) carrying enable flags keyed ``"{origin}:{rel_path}"``;
 the files themselves live in the global dir (``data_dir()/tools``) or the
-workspace tool dirs (``.devin/tools`` & co.). Listings are ``ast``-parsed —
+workspace tool dir (``.pydantic-chat/tools``). Listings are ``ast``-parsed —
 user code is only ever executed at run-build time, never to render a
 settings page.
 
@@ -274,10 +274,10 @@ async def list_user_tools(
 ) -> list[UserToolOut]:
     """Every discovered tool file, ast-parsed — never imported.
 
-    ``workspace_id`` adds that workspace's tool dirs (``.devin/tools``,
-    ``.agents/tools``, ``.claude/tools``); workspace files shadow global
-    ones of the same basename (the loser reports ``skipped_reason``). An
-    unknown workspace is a 404, matching ``/api/skills``.
+    ``workspace_id`` adds that workspace's tool dir
+    (``.pydantic-chat/tools``); workspace files shadow global ones of the
+    same basename (the loser reports ``skipped_reason``). An unknown
+    workspace is a 404, matching ``/api/skills``.
     """
     return await _listing(store, workspace_id)
 
@@ -287,9 +287,9 @@ async def create_user_tool(body: UserToolCreate, store: StoreDep) -> list[UserTo
     """Create a tool file; ``source`` defaults to a starter template.
 
     Global files land in ``data_dir()/tools``; workspace files in
-    ``<root>/.devin/tools`` (canonical dir — the other spellings remain
-    readable but aren't created here). An existing file is a 409. The file
-    is enabled by default — nothing is written to the registry.
+    ``<root>/.pydantic-chat/tools`` (the canonical — and only — workspace
+    tool dir). An existing file is a 409. The file is enabled by default —
+    nothing is written to the registry.
     """
     if not TOOL_FILENAME_RE.fullmatch(body.filename):
         raise HTTPException(
@@ -305,7 +305,8 @@ async def create_user_tool(body: UserToolCreate, store: StoreDep) -> list[UserTo
                 detail="workspace_id is required for workspace-origin tools",
             )
         root = await _workspace_root(store, body.workspace_id)
-        directory = root / ".devin" / "tools"
+        # The canonical write target is the first workspace tool dir.
+        directory = root / WORKSPACE_TOOL_DIRS[0]
     directory.mkdir(parents=True, exist_ok=True)
     target = directory / body.filename
     if target.exists():

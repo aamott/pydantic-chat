@@ -361,8 +361,9 @@ class UserToolSpec(BaseModel):
     """One registered user-tool file — a row of the ``user_tools`` settings list.
 
     The registry stores *enablement*, not source: files are discovered on disk
-    (``data_dir()/tools`` for ``origin="global"``, ``<workspace>/.devin/tools``
-    & co. for ``origin="workspace"``) and this row merely remembers whether a
+    (``data_dir()/tools`` for ``origin="global"``,
+    ``<workspace>/.pydantic-chat/tools`` for ``origin="workspace"``) and
+    this row merely remembers whether a
     given ``key`` is enabled. ``key`` is ``"{origin}:{rel_path}"`` — a
     workspace key is not per-workspace; it applies to any workspace that has
     a tool file at that rel_path (v1 has no per-workspace mask).
@@ -396,8 +397,8 @@ class UserToolCreate(BaseModel):
     """``POST /api/user-tools`` body — create a tool file on disk.
 
     ``origin="global"`` writes under ``data_dir()/tools``;
-    ``origin="workspace"`` writes under ``<workspace>/.devin/tools`` (the
-    canonical workspace tool dir) and requires ``workspace_id``. ``filename``
+    ``origin="workspace"`` writes under ``<workspace>/.pydantic-chat/tools``
+    (the workspace tool dir) and requires ``workspace_id``. ``filename``
     is a bare ``*.py`` name — no directories. ``source`` defaults to a
     starter template when omitted.
     """

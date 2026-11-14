@@ -1,7 +1,8 @@
 """Tests for user-defined tools: discovery, loading, REST API, run wiring.
 
-Tool files live in ``data_dir()/tools`` (global) and ``<workspace>/.devin|
-.agents|.claude/tools``; every top-level public def becomes a ``user_<name>``
+Tool files live in ``data_dir()/tools`` (global) and
+``<workspace>/.pydantic-chat/tools``; every top-level public def becomes
+a ``user_<name>``
 tool through a prefixed ``FunctionToolset``. The listing/catalog paths parse
 with ``ast`` only — exec happens exclusively at run-build inside
 ``build_user_tool_capabilities``, where failures degrade to warn + skip.
@@ -136,10 +137,10 @@ async def test_user_tools_store_roundtrip(isolated_config):
                 rel_path="greet.py",
             ),
             UserToolSpec(
-                key="workspace:.devin/tools/calc.py",
+                key="workspace:.pydantic-chat/tools/calc.py",
                 name="calc",
                 origin="workspace",
-                rel_path=".devin/tools/calc.py",
+                rel_path=".pydantic-chat/tools/calc.py",
                 enabled=False,
             ),
         ]
@@ -161,15 +162,18 @@ def test_parse_user_tools_skips_malformed_entries():
         {"key": "bogus"},  # missing fields
         "not-a-dict",
         {
-            "key": "workspace:.devin/tools/b.py",
+            "key": "workspace:.pydantic-chat/tools/b.py",
             "name": "b",
             "origin": "workspace",
-            "rel_path": ".devin/tools/b.py",
+            "rel_path": ".pydantic-chat/tools/b.py",
             "enabled": False,
         },
     ]
     specs = parse_user_tools(raw)
-    assert [s.key for s in specs] == ["global:a.py", "workspace:.devin/tools/b.py"]
+    assert [s.key for s in specs] == [
+        "global:a.py",
+        "workspace:.pydantic-chat/tools/b.py",
+    ]
     assert specs[1].enabled is False
 
 
@@ -182,9 +186,9 @@ def test_parse_user_tools_handles_garbage():
 
 def test_parse_tool_key():
     assert parse_tool_key("global:greet.py") == ("global", "greet.py")
-    assert parse_tool_key("workspace:.devin/tools/x.py") == (
+    assert parse_tool_key("workspace:.pydantic-chat/tools/x.py") == (
         "workspace",
-        ".devin/tools/x.py",
+        ".pydantic-chat/tools/x.py",
     )
     assert parse_tool_key("nocolon") is None
     assert parse_tool_key("nope:x.py") is None
@@ -199,17 +203,18 @@ def test_parse_tool_key():
 def test_discovery_global_and_workspace(isolated_config):
     root = isolated_config / "ws"
     global_file = _write(global_tools_dir() / "shared.py")
-    ws_file = _write(root / ".devin" / "tools" / "local.py")
+    ws_file = _write(root / ".pydantic-chat" / "tools" / "local.py")
+    # Skills-style spellings are not tool dirs — never discovered.
     _write(root / ".claude" / "tools" / "other.py", source="def f():\n    pass\n")
 
     files = {f.key: f for f in discover_user_tool_files(root)}
     assert files["global:shared.py"].path == global_file
     assert files["global:shared.py"].origin == "global"
-    assert files["workspace:.devin/tools/local.py"].path == ws_file
-    assert "workspace:.claude/tools/other.py" in files
+    assert files["workspace:.pydantic-chat/tools/local.py"].path == ws_file
+    assert "workspace:.claude/tools/other.py" not in files
     # Workspace-first ordering.
     keys = list(files)
-    assert keys.index("workspace:.devin/tools/local.py") < keys.index(
+    assert keys.index("workspace:.pydantic-chat/tools/local.py") < keys.index(
         "global:shared.py"
     )
 
@@ -217,28 +222,24 @@ def test_discovery_global_and_workspace(isolated_config):
 def test_discovery_workspace_shadows_global(isolated_config):
     root = isolated_config / "ws"
     _write(global_tools_dir() / "same.py")
-    _write(root / ".devin" / "tools" / "same.py")
+    _write(root / ".pydantic-chat" / "tools" / "same.py")
     files = {f.key: f for f in discover_user_tool_files(root)}
-    assert files["workspace:.devin/tools/same.py"].shadowed_by is None
-    assert files["global:same.py"].shadowed_by == "workspace:.devin/tools/same.py"
+    assert files["workspace:.pydantic-chat/tools/same.py"].shadowed_by is None
+    assert (
+        files["global:same.py"].shadowed_by == "workspace:.pydantic-chat/tools/same.py"
+    )
 
 
-def test_discovery_workspace_dir_precedence(isolated_config):
-    """``.devin`` beats ``.agents`` beats ``.claude`` on same-name files."""
+def test_discovery_only_pydantic_chat_dir_scanned(isolated_config):
+    """``.claude``/``.agents``/``.devin`` spellings are skills dirs, not tool dirs."""
     root = isolated_config / "ws"
     _write(root / ".claude" / "tools" / "x.py")
-    _write(root / ".devin" / "tools" / "x.py")
     _write(root / ".agents" / "tools" / "x.py")
+    _write(root / ".devin" / "tools" / "x.py")
+    _write(root / ".pydantic-chat" / "tools" / "x.py")
     files = {f.key: f for f in discover_user_tool_files(root)}
-    assert files["workspace:.devin/tools/x.py"].shadowed_by is None
-    assert (
-        files["workspace:.agents/tools/x.py"].shadowed_by
-        == "workspace:.devin/tools/x.py"
-    )
-    assert (
-        files["workspace:.claude/tools/x.py"].shadowed_by
-        == "workspace:.devin/tools/x.py"
-    )
+    assert list(files) == ["workspace:.pydantic-chat/tools/x.py"]
+    assert files["workspace:.pydantic-chat/tools/x.py"].shadowed_by is None
 
 
 def test_discovery_missing_dirs(isolated_config):
@@ -356,9 +357,9 @@ def _spec(key: str, enabled: bool = True) -> UserToolSpec:
 
 async def test_capabilities_expose_prefixed_callable_tools(isolated_config):
     root = isolated_config / "ws"
-    _write(root / ".devin" / "tools" / "greeter.py")
+    _write(root / ".pydantic-chat" / "tools" / "greeter.py")
     caps = build_user_tool_capabilities(
-        [_spec("workspace:.devin/tools/greeter.py")],
+        [_spec("workspace:.pydantic-chat/tools/greeter.py")],
         workspace_root=root,
         gate=False,
     )
@@ -387,7 +388,7 @@ async def test_capabilities_expose_prefixed_callable_tools(isolated_config):
 async def test_capabilities_gate_wraps_approval(isolated_config):
     """Non-bypass profiles route every user-tool call through approval."""
     root = isolated_config / "ws"
-    _write(root / ".devin" / "tools" / "greeter.py")
+    _write(root / ".pydantic-chat" / "tools" / "greeter.py")
     caps = build_user_tool_capabilities([], workspace_root=root, gate=True)
     toolset = caps[0].toolset
     assert isinstance(toolset, ApprovalRequiredToolset)
@@ -402,11 +403,11 @@ def test_capabilities_disabled_and_shadowed_skipped(isolated_config):
     root = isolated_config / "ws"
     _write(global_tools_dir() / "on.py")
     _write(global_tools_dir() / "off.py")
-    _write(root / ".devin" / "tools" / "on.py")  # shadows the global file
+    _write(root / ".pydantic-chat" / "tools" / "on.py")  # shadows the global file
     specs = [
         _spec("global:on.py"),
         _spec("global:off.py", enabled=False),
-        _spec("workspace:.devin/tools/on.py"),
+        _spec("workspace:.pydantic-chat/tools/on.py"),
     ]
     caps = build_user_tool_capabilities(specs, workspace_root=root, gate=False)
     # Only the workspace copy's functions registered — the global same-name
@@ -419,10 +420,13 @@ def test_capabilities_disabled_and_shadowed_skipped(isolated_config):
 def test_capabilities_exec_failure_skips_file(isolated_config):
     root = isolated_config / "ws"
     _write(
-        root / ".devin" / "tools" / "boom.py",
+        root / ".pydantic-chat" / "tools" / "boom.py",
         source='raise RuntimeError("module blew up")\n',
     )
-    _write(root / ".devin" / "tools" / "fine.py", source="def ok():\n    return 1\n")
+    _write(
+        root / ".pydantic-chat" / "tools" / "fine.py",
+        source="def ok():\n    return 1\n",
+    )
     caps = build_user_tool_capabilities([], workspace_root=root, gate=False)
     assert len(caps) == 1
     assert list(caps[0].toolset.wrapped.tools) == ["ok"]
@@ -431,11 +435,11 @@ def test_capabilities_exec_failure_skips_file(isolated_config):
 def test_capabilities_illegal_and_duplicate_names_skipped(isolated_config):
     root = isolated_config / "ws"
     _write(
-        root / ".devin" / "tools" / "a.py",
+        root / ".pydantic-chat" / "tools" / "a.py",
         source="def BadName():\n    pass\n\ndef ok_a():\n    return 1\n",
     )
     _write(
-        root / ".devin" / "tools" / "b.py",
+        root / ".pydantic-chat" / "tools" / "b.py",
         source="def ok_a():\n    return 2\n",  # dup of a.py's — first wins
     )
     caps = build_user_tool_capabilities([], workspace_root=root, gate=False)
@@ -461,12 +465,14 @@ def test_capabilities_no_files_no_capability(isolated_config):
 def test_run_kwargs_include_user_tools_under_bypass(isolated_config):
     set_secret("anthropic_api_key", "sk-ant-test")
     root = isolated_config / "ws"
-    _write(root / ".devin" / "tools" / "greeter.py")
+    _write(root / ".pydantic-chat" / "tools" / "greeter.py")
     kwargs = build_run_kwargs(
         {
             "model": "anthropic:claude-sonnet-4-6",
             "permission_profile": "bypass",
-            "user_tools": [_spec("workspace:.devin/tools/greeter.py").model_dump()],
+            "user_tools": [
+                _spec("workspace:.pydantic-chat/tools/greeter.py").model_dump()
+            ],
         },
         root,
     )
@@ -485,7 +491,7 @@ def test_run_kwargs_include_user_tools_under_bypass(isolated_config):
 def test_run_kwargs_gate_user_tools_under_manual(isolated_config):
     set_secret("anthropic_api_key", "sk-ant-test")
     root = isolated_config / "ws"
-    _write(root / ".devin" / "tools" / "greeter.py")
+    _write(root / ".pydantic-chat" / "tools" / "greeter.py")
     kwargs = build_run_kwargs(
         {
             "model": "anthropic:claude-sonnet-4-6",
@@ -553,20 +559,20 @@ def test_user_tools_listing_and_shadowing(client):
     workspace_id = _workspace_id(test_client, project)
     data_tools = tmp_path / "data" / "tools"
     _write(data_tools / "shared.py")
-    _write(project / ".devin" / "tools" / "local.py")
-    _write(project / ".devin" / "tools" / "shared.py")  # shadows global
+    _write(project / ".pydantic-chat" / "tools" / "local.py")
+    _write(project / ".pydantic-chat" / "tools" / "shared.py")  # shadows global
 
     response = test_client.get(
         "/api/user-tools", params={"workspace_id": workspace_id}, headers=AUTH
     )
     assert response.status_code == 200
     rows = {row["key"]: row for row in response.json()}
-    local = rows["workspace:.devin/tools/local.py"]
+    local = rows["workspace:.pydantic-chat/tools/local.py"]
     assert local["enabled"] is True
     assert [f["name"] for f in local["functions"]] == ["greet", "add"]
     assert local["docstring"] == "A greeter module."
     assert rows["global:shared.py"]["skipped_reason"].startswith("shadowed by")
-    assert rows["workspace:.devin/tools/shared.py"]["skipped_reason"] is None
+    assert rows["workspace:.pydantic-chat/tools/shared.py"]["skipped_reason"] is None
 
     # Without workspace_id only global files list.
     response = test_client.get("/api/user-tools", headers=AUTH)
@@ -659,8 +665,10 @@ def test_create_user_tool_workspace(client):
         headers=AUTH,
     )
     assert created.status_code == 201
-    assert (project / ".devin" / "tools" / "t.py").is_file()
-    assert any(row["key"] == "workspace:.devin/tools/t.py" for row in created.json())
+    assert (project / ".pydantic-chat" / "tools" / "t.py").is_file()
+    assert any(
+        row["key"] == "workspace:.pydantic-chat/tools/t.py" for row in created.json()
+    )
 
 
 def test_patch_user_tool_toggle(client):
@@ -748,7 +756,7 @@ def test_source_put_creates_and_is_jailed(client):
         test_client.put(
             "/api/user-tools/source",
             json={
-                "key": "workspace:.devin/tools/t.py",
+                "key": "workspace:.pydantic-chat/tools/t.py",
                 "source": "x = 1\n",
             },
             headers=AUTH,
@@ -803,7 +811,7 @@ def test_workspace_source_jailed_to_tool_dirs(client):
     assert test_client.get(
         "/api/user-tools/source",
         params={
-            "key": "workspace:.devin/tools/../../secrets/x.py",
+            "key": "workspace:.pydantic-chat/tools/../../secrets/x.py",
             "workspace_id": workspace_id,
         },
         headers=AUTH,
@@ -869,7 +877,7 @@ def test_tool_catalog_includes_enabled_user_tools(client):
     project.mkdir()
     workspace_id = _workspace_id(test_client, project)
     _write(tmp_path / "data" / "tools" / "greeter.py")
-    _write(project / ".devin" / "tools" / "broken.py", source=BAD_SOURCE)
+    _write(project / ".pydantic-chat" / "tools" / "broken.py", source=BAD_SOURCE)
     test_client.patch(
         "/api/user-tools",
         json={"key": "global:greeter.py", "enabled": False},
