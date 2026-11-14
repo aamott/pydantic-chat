@@ -137,6 +137,20 @@ function OutputBlock({ children }: Readonly<{ children: ReactNode }>): React.JSX
 }
 
 /**
+ * Renders output lines as keyed divs. Tool output is a static string, so
+ * line content is the identity — the per-line occurrence count keeps keys
+ * unique when a line repeats (grep context lines can overlap).
+ */
+function lineDivs(lines: string[], render: (line: string) => ReactNode): ReactNode {
+  const seen = new Map<string, number>()
+  return lines.map((line) => {
+    const count = seen.get(line) ?? 0
+    seen.set(line, count + 1)
+    return <div key={`${count}:${line}`}>{render(line)}</div>
+  })
+}
+
+/**
  * grep/search_files results: `file:line:text` match lines and `file-line-text`
  * context lines (when the call passed `context`). The path:line prefix links
  * to the File tab; bracketed `[...]` notices and `No matches found.` render
@@ -148,21 +162,18 @@ const GREP_CONTEXT_RE = /^(.+)-(\d+)-(.*)$/
 function renderSearchOutput(output: string): ReactNode {
   return (
     <OutputBlock>
-      {truncate(output)
-        .split('\n')
-        .map((line, i) => {
-          const match = GREP_MATCH_RE.exec(line)
-          const context = match ? null : GREP_CONTEXT_RE.exec(line)
-          const parsed = match ?? context
-          if (!parsed) return <div key={i}>{line || ' '}</div>
-          return (
-            <div key={i}>
-              <FileLink path={parsed[1]} line={Number(parsed[2])} />
-              {match ? ':' : '-'}
-              {parsed[3]}
-            </div>
-          )
-        })}
+      {lineDivs(truncate(output).split('\n'), (line) => {
+        const match = GREP_MATCH_RE.exec(line)
+        const parsed = match ?? GREP_CONTEXT_RE.exec(line)
+        if (!parsed) return line || ' '
+        return (
+          <>
+            <FileLink path={parsed[1]} line={Number(parsed[2])} />
+            {match ? ':' : '-'}
+            {parsed[3]}
+          </>
+        )
+      })}
     </OutputBlock>
   )
 }
@@ -182,21 +193,15 @@ const LISTING_NOISE = new Set([
 function renderPathList(output: string): ReactNode {
   return (
     <OutputBlock>
-      {truncate(output)
-        .split('\n')
-        .map((line, i) => {
-          const path = line.trimEnd()
-          const isFile =
-            path !== '' &&
-            !path.endsWith('/') &&
-            !path.startsWith('[') &&
-            !LISTING_NOISE.has(path)
-          return (
-            <div key={i}>
-              {isFile ? <FileLink path={path} /> : line || ' '}
-            </div>
-          )
-        })}
+      {lineDivs(truncate(output).split('\n'), (line) => {
+        const path = line.trimEnd()
+        const isFile =
+          path !== '' &&
+          !path.endsWith('/') &&
+          !path.startsWith('[') &&
+          !LISTING_NOISE.has(path)
+        return isFile ? <FileLink path={path} /> : line || ' '
+      })}
     </OutputBlock>
   )
 }
@@ -211,20 +216,16 @@ const DIR_ENTRY_RE = /^(.*?)\s{2}\(([^)]+)\)$/
 function renderDirList(output: string): ReactNode {
   return (
     <OutputBlock>
-      {truncate(output)
-        .split('\n')
-        .map((line, i) => {
-          const entry = DIR_ENTRY_RE.exec(line)
-          if (!entry || !entry[1] || entry[1].endsWith('/')) {
-            return <div key={i}>{line || ' '}</div>
-          }
-          return (
-            <div key={i}>
-              <FileLink path={entry[1]} />
-              <span className="text-faint">  ({entry[2]})</span>
-            </div>
-          )
-        })}
+      {lineDivs(truncate(output).split('\n'), (line) => {
+        const entry = DIR_ENTRY_RE.exec(line)
+        if (!entry?.[1] || entry[1].endsWith('/')) return line || ' '
+        return (
+          <>
+            <FileLink path={entry[1]} />
+            <span className="text-faint">  ({entry[2]})</span>
+          </>
+        )
+      })}
     </OutputBlock>
   )
 }
