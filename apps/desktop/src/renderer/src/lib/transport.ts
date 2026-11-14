@@ -24,9 +24,12 @@ import { Chat } from '@ai-sdk/react'
 import {
   APICallError,
   DefaultChatTransport,
+  EmptyResponseBodyError,
   lastAssistantMessageIsCompleteWithApprovalResponses,
+  type ChatOnDataCallback,
   type ChatTransport,
   type UIMessage,
+  type UIMessageChunk,
 } from 'ai'
 import { newTurnMessages } from './messages'
 
@@ -34,17 +37,36 @@ import { newTurnMessages } from './messages'
 export type AppChat = Chat<UIMessage>
 
 /**
- * `DefaultChatTransport` that treats a 404 on reconnect as "no live stream".
+ * `DefaultChatTransport` with two resume semantics:
  *
- * `HttpChatTransport.reconnectToStream` issues `GET {api}/{chatId}/stream`;
- * until the backend lands that route every mount would otherwise flip the
- * chat into `error` status. `null` means "nothing to resume" per the
- * `ChatTransport` contract, so the chat stays `ready`.
+ * - **Replay** (default): `GET {api}/{chatId}/stream` re-attaches to a live
+ *   or completed stream. A 404 means "nothing to resume" — `null` per the
+ *   `ChatTransport` contract, so the chat stays `ready` rather than
+ *   erroring on every mount.
+ * - **Continuation** (one-shot): `requestResumeRun()` arms the next
+ *   `chat.resumeStream()` call to issue `POST /api/chats/{id}/resume`
+ *   instead — the server-initiated continuation that continues a failed or
+ *   interrupted run from its StepPersistence snapshot. `resume-stream` is
+ *   the only `ChatTransport` seam that feeds a stream into the chat without
+ *   fabricating a user turn, so the dedicated endpoint rides it; the flag
+ *   makes the intent explicit and auto-disarms after one request.
  */
-class BackendChatTransport extends DefaultChatTransport<UIMessage> {
-  override reconnectToStream(
+export class BackendChatTransport extends DefaultChatTransport<UIMessage> {
+  /** One-shot: the next `reconnectToStream` is a resume POST, not a replay. */
+  private resumeRunArmed = false
+
+  /** Arm the next `resumeStream()` to POST the dedicated resume endpoint. */
+  requestResumeRun(): void {
+    this.resumeRunArmed = true
+  }
+
+  override async reconnectToStream(
     options: Parameters<ChatTransport<UIMessage>['reconnectToStream']>[0],
-  ): ReturnType<ChatTransport<UIMessage>['reconnectToStream']> {
+  ): Promise<ReadableStream<UIMessageChunk> | null> {
+    if (this.resumeRunArmed) {
+      this.resumeRunArmed = false
+      return this.resumeRun(options)
+    }
     return super.reconnectToStream(options).catch((error: unknown) => {
       if (error instanceof APICallError && error.statusCode === 404) {
         return null
@@ -52,6 +74,56 @@ class BackendChatTransport extends DefaultChatTransport<UIMessage> {
       throw error
     })
   }
+
+  /**
+   * `POST /api/chats/{chatId}/resume` — the same fetch+decode shape
+   * `HttpChatTransport.reconnectToStream` performs for the replay GET,
+   * pointed at the dedicated continuation endpoint.
+   */
+  private async resumeRun(options: {
+    chatId: string
+    abortSignal?: AbortSignal
+  }): Promise<ReadableStream<UIMessageChunk>> {
+    const url = `${window.api.backendUrl}/api/chats/${encodeURIComponent(options.chatId)}/resume`
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${window.api.token}` },
+      signal: options.abortSignal,
+    })
+    if (!response.ok) {
+      const responseBody = await response.text()
+      throw new APICallError({
+        message: responseBody || 'Failed to resume the interrupted run.',
+        url,
+        requestBodyValues: undefined,
+        statusCode: response.status,
+        responseBody,
+      })
+    }
+    if (!response.body) {
+      throw new EmptyResponseBodyError({
+        message: 'The resume response body is empty.',
+      })
+    }
+    return this.processResponseStream(response.body)
+  }
+}
+
+/**
+ * Live transports keyed by chat id — the only way to reach the transport a
+ * `Chat` owns, since `AbstractChat.transport` is private. Entries are added
+ * by `makeChat` and pruned alongside the chat registry.
+ */
+const transportRegistry = new Map<string, BackendChatTransport>()
+
+/** The transport backing `chatId`'s Chat instance, when one exists. */
+export function getTransport(chatId: string): BackendChatTransport | undefined {
+  return transportRegistry.get(chatId)
+}
+
+/** Drop `chatId`'s transport — called when the chat itself is deleted. */
+export function dropTransport(chatId: string): void {
+  transportRegistry.delete(chatId)
 }
 
 /**
@@ -79,13 +151,22 @@ export function makeTransport(): BackendChatTransport {
 
 /**
  * Create a `Chat` for one conversation. `messages` seeds the transcript from
- * `GET /api/chats/{id}/messages` (UIMessage dicts straight off the wire).
+ * `GET /api/chats/{id}/messages` (UIMessage dicts straight off the wire);
+ * `onData` receives every `data-*` part (including transient ones like the
+ * `data-resume` notice, which never lands on a message).
  */
-export function makeChat(chatId: string, messages?: UIMessage[]): AppChat {
+export function makeChat(
+  chatId: string,
+  messages?: UIMessage[],
+  onData?: ChatOnDataCallback<UIMessage>,
+): AppChat {
+  const transport = makeTransport()
+  transportRegistry.set(chatId, transport)
   return new Chat<UIMessage>({
     id: chatId,
-    transport: makeTransport(),
+    transport,
     messages,
+    onData,
     // Resubmit once the approval cards (features/chat/ApprovalCard.tsx) have
     // answered every pending request on the last assistant step.
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,

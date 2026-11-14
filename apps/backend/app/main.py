@@ -9,7 +9,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from app.api import chat, chats, files, mcp, models, profiles, settings, workspaces
+from app.api import (
+    chat,
+    chats,
+    files,
+    mcp,
+    models,
+    profiles,
+    resume,
+    settings,
+    workspaces,
+)
 from app.db import ChatStore
 from app.profiles import ensure_system_skills
 
@@ -64,6 +74,7 @@ def create_app() -> FastAPI:
     app.include_router(chats.router, dependencies=[Depends(_check_auth)])
     app.include_router(files.router, dependencies=[Depends(_check_auth)])
     app.include_router(chat.router, dependencies=[Depends(_check_auth)])
+    app.include_router(resume.router, dependencies=[Depends(_check_auth)])
     app.include_router(settings.router, dependencies=[Depends(_check_auth)])
     app.include_router(mcp.router, dependencies=[Depends(_check_auth)])
     app.include_router(models.router, dependencies=[Depends(_check_auth)])

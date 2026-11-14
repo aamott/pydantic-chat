@@ -17,7 +17,13 @@ import type {
   Workspace,
 } from '@pydantic-chat/shared'
 import { apiFetch, apiJson } from '../lib/api'
-import { makeChat, type AppChat } from '../lib/transport'
+import { isRecord } from '../lib/toolArgs'
+import {
+  dropTransport,
+  getTransport,
+  makeChat,
+  type AppChat,
+} from '../lib/transport'
 
 /**
  * Registry of live `Chat` instances keyed by chat id. Non-reactive on
@@ -34,11 +40,32 @@ export function getChat(chatId: string): AppChat | undefined {
   return chatRegistry.get(chatId)
 }
 
+/**
+ * `data-resume` payload from `POST /api/chats/{id}/resume`: the interrupted
+ * run's tool calls whose ledger record stayed `started` (the process died
+ * mid-execution, so the side effect is unknown). Surfaced as a notice so the
+ * user knows those calls did not finish — resume tells the model so via a
+ * synthesized 'interrupted' return, it does not silently re-run them.
+ */
+function resumeNotice(dataPart: { type: string; data?: unknown }): string | null {
+  if (dataPart.type !== 'data-resume' || !isRecord(dataPart.data)) return null
+  const effects = dataPart.data.unknown_effects
+  if (!Array.isArray(effects) || effects.length === 0) return null
+  const names = effects
+    .map((e) => (isRecord(e) && typeof e.tool_name === 'string' ? e.tool_name : null))
+    .filter((n): n is string => n !== null)
+  const suffix = names.length > 0 ? `: ${names.join(', ')}` : ''
+  return `Resumed from a checkpoint — tool call(s) that were interrupted did not finish${suffix}.`
+}
+
 /** Register (or reuse) a Chat instance for `chatId`. */
 function ensureChat(chatId: string): AppChat {
   let chat = chatRegistry.get(chatId)
   if (!chat) {
-    chat = makeChat(chatId)
+    chat = makeChat(chatId, undefined, (dataPart) => {
+      const notice = resumeNotice(dataPart)
+      if (notice) useChatsStore.setState({ notice })
+    })
     chatRegistry.set(chatId, chat)
   }
   return chat
@@ -183,6 +210,13 @@ interface ChatsState {
   selectWorkspace: (workspaceId: string) => Promise<void>
   /** Abort the active chat's stream locally, then POST /api/chats/{id}/stop. */
   stopActive: () => Promise<void>
+  /**
+   * Resume the active chat's last interrupted run: probe `GET …/resume`,
+   * then trigger `POST …/resume` through the Chat's `resumeStream()` — the
+   * SDK seam that streams a server-initiated continuation into the
+   * transcript without fabricating a user turn.
+   */
+  resumeActive: () => Promise<void>
   /** Clear the notice banner. */
   dismissNotice: () => void
 }
@@ -432,6 +466,7 @@ export const useChatsStore = create<ChatsState>()((set, get) => {
       }
       chatRegistry.delete(chatId)
       hydratedChats.delete(chatId)
+      dropTransport(chatId)
       set((s) => {
         const versions = { ...s.versions }
         delete versions[chatId]
@@ -483,6 +518,7 @@ export const useChatsStore = create<ChatsState>()((set, get) => {
       for (const chat of workspace?.chats ?? []) {
         chatRegistry.delete(chat.id)
         hydratedChats.delete(chat.id)
+        dropTransport(chat.id)
       }
       set((s) => {
         const versions = { ...s.versions }
@@ -543,6 +579,7 @@ export const useChatsStore = create<ChatsState>()((set, get) => {
           })
           chatRegistry.delete(chatId)
           hydratedChats.delete(chatId)
+          dropTransport(chatId)
           if (workspace) await activateWorkspaceChat(workspace)
         } else {
           set({
@@ -573,6 +610,48 @@ export const useChatsStore = create<ChatsState>()((set, get) => {
         await apiFetch(`/api/chats/${chatId}/stop`, { method: 'POST' })
       } catch {
         /* 404 = nothing running (already finished); still fine */
+      }
+    },
+
+    resumeActive: async () => {
+      const chatId = get().activeChatId
+      const chat = chatId ? chatRegistry.get(chatId) : undefined
+      const transport = chatId ? getTransport(chatId) : undefined
+      if (!chatId || !chat || !transport) return
+      // Probe first: nothing resumable → a notice, not a spurious error state.
+      try {
+        const probe = await apiJson<{
+          resumable: boolean
+          reason: string | null
+        }>(`/api/chats/${chatId}/resume`)
+        if (!probe.resumable) {
+          set({ notice: probe.reason ?? 'There is nothing to resume.' })
+          return
+        }
+      } catch (error) {
+        set({
+          notice:
+            error instanceof Error
+              ? `Couldn't resume the run: ${error.message}`
+              : "Couldn't resume the run",
+        })
+        return
+      }
+      // Arm the one-shot continuation, then drive the dedicated endpoint
+      // through `resumeStream()` — the only SDK intake that merges a
+      // server-initiated stream without sending a user message.
+      transport.requestResumeRun()
+      try {
+        await chat.resumeStream()
+      } catch (error) {
+        // Request-level errors normally land in `error`/the banner; this is
+        // the defensive path (e.g. an abort raced the click).
+        set({
+          notice:
+            error instanceof Error
+              ? `Couldn't resume the run: ${error.message}`
+              : "Couldn't resume the run",
+        })
       }
     },
 

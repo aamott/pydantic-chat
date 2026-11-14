@@ -47,7 +47,10 @@ from pydantic_ai import (
     capture_run_messages,
 )
 from pydantic_ai.conversation import Conversation
-from pydantic_ai.conversation_store import ConversationConflict
+from pydantic_ai.conversation_store import (
+    ConversationConflict,
+    ConversationStore,
+)
 from pydantic_ai.exceptions import RunCancelled
 from pydantic_ai.messages import (
     FunctionToolCallEvent,
@@ -155,51 +158,54 @@ class AppVercelAIAdapter(VercelAIAdapter):
                     # Disconnect lands inside a cancelled anyio scope where
                     # every further await re-raises; shield so the save runs.
                     with anyio.CancelScope(shield=True):
-                        await self._save_captured(stream, conversation_id, captured)
+                        aclose = getattr(stream, "aclose", None)
+                        if aclose is not None:
+                            # Closing the suspended inner stream first gives the
+                            # run's own teardown a chance to record the in-flight
+                            # part as ``state='interrupted'`` before the history
+                            # is read. Even a cancellation surfacing from that
+                            # teardown must not abort the save it exists for.
+                            with suppress(BaseException):
+                                await aclose()
+                        await save_failed_run_messages(
+                            store, self.conversation_scope, conversation_id, captured
+                        )
                 raise
 
-    async def _save_captured(
-        self,
-        stream: AsyncIterator[NativeEvent],
-        conversation_id: str,
-        captured: list[ModelMessage],
-    ) -> None:
-        """Persist the captured at-failure history, mirroring ``_persist_partial``.
 
-        Closing the (possibly still-suspended) inner stream first gives the
-        run's own teardown a chance to record the in-flight part as
-        ``state='interrupted'`` before the history is read. The save follows
-        the store's content-comparison path, so a failed resubmit also
-        branches the tail it replaces; failures to persist are logged, never
-        raised over the run's own error.
-        """
-        aclose = getattr(stream, "aclose", None)
-        if aclose is not None:
-            # BaseException: even a cancellation surfacing from the run's own
-            # teardown must not abort the save that teardown exists to enable.
-            with suppress(BaseException):
-                await aclose()
-        messages = _drop_trailing_empty_response(captured)
-        if not messages:
-            return
-        store = self.conversation_store
-        assert store is not None  # caller guarantees it
-        try:
-            loaded = await store.load(conversation_id, scope=self.conversation_scope)
-            if loaded is None:
-                conversation = Conversation(
-                    messages=messages, conversation_id=conversation_id
-                )
-            else:
-                loaded.messages = messages
-                conversation = loaded
-            await store.save(conversation, scope=self.conversation_scope)
-        except ConversationConflict:
-            logger.warning(
-                "Failed run for chat %s not saved: store conflict", conversation_id
+async def save_failed_run_messages(
+    store: ConversationStore,
+    scope: str | None,
+    conversation_id: str,
+    captured: list[ModelMessage],
+) -> None:
+    """Persist a captured at-failure history, mirroring ``_persist_partial``.
+
+    Shared by ``AppVercelAIAdapter._persist_failed_run`` and the resume route
+    (``app/api/resume.py``), which bypasses the adapter entirely: the save
+    follows the store's content-comparison path, so a stored tail the new
+    history diverges from is kept as a branch rather than silently replaced.
+    Failures to persist are logged, never raised over the run's own error.
+    """
+    messages = _drop_trailing_empty_response(captured)
+    if not messages:
+        return
+    try:
+        loaded = await store.load(conversation_id, scope=scope)
+        if loaded is None:
+            conversation = Conversation(
+                messages=messages, conversation_id=conversation_id
             )
-        except Exception:
-            logger.exception("Failed run for chat %s not saved", conversation_id)
+        else:
+            loaded.messages = messages
+            conversation = loaded
+        await store.save(conversation, scope=scope)
+    except ConversationConflict:
+        logger.warning(
+            "Failed run for chat %s not saved: store conflict", conversation_id
+        )
+    except Exception:
+        logger.exception("Failed run for chat %s not saved", conversation_id)
 
 
 @router.post("/chat")

@@ -4,9 +4,11 @@
  * `useChat` binds to the externally-owned `Chat` instance pulled from the
  * store's registry, so the run keeps streaming when the user switches chats
  * or the panel unmounts. `resume: true` re-attaches to an in-flight stream
- * after a reload — the transport's `reconnectToStream` currently gets a 404
- * (backend `GET /api/chat/{id}/stream` isn't implemented yet) and the
- * transport degrades that to "nothing to resume" rather than an error.
+ * after a reload — the transport's `reconnectToStream` replays the last
+ * persisted response via `GET /api/chat/{id}/stream` (a 404 degrades to
+ * "nothing to resume"). The separate "Resume" button in the error banner
+ * arms the transport's one-shot continuation and calls `resumeStream()`,
+ * which `POST /api/chats/{id}/resume`s the interrupted run instead.
  */
 import { useEffect, useMemo, useRef } from 'react'
 import { useChat } from '@ai-sdk/react'
@@ -94,6 +96,7 @@ export function ChatPanel(): React.JSX.Element {
 
 function ChatView({ chat }: Readonly<{ chat: AppChat }>): React.JSX.Element {
   const stopActive = useChatsStore((s) => s.stopActive)
+  const resumeActive = useChatsStore((s) => s.resumeActive)
   const refreshWorkspaces = useChatsStore((s) => s.refreshWorkspaces)
   const refreshVersions = useChatsStore((s) => s.refreshVersions)
   const versions = useChatsStore(
@@ -177,7 +180,12 @@ function ChatView({ chat }: Readonly<{ chat: AppChat }>): React.JSX.Element {
         onRegenerate={(id) => void regenerate({ messageId: id })}
       />
       {error && (
-        <ChatError error={error} onDismiss={clearError} onRetry={retry} />
+        <ChatError
+          error={error}
+          onDismiss={clearError}
+          onRetry={retry}
+          onResume={() => void resumeActive()}
+        />
       )}
       {/* Composer stays enabled in `error` status so the user can also
           just retype; `sendMessage` self-clears the error on send. */}
@@ -197,11 +205,19 @@ function ChatError({
   error,
   onDismiss,
   onRetry,
+  onResume,
 }: Readonly<{
   error: Error
   onDismiss: () => void
   /** Undefined when there's no user message to resubmit — no button then. */
   onRetry?: () => void
+  /**
+   * Resume the interrupted run from its server-side snapshot — distinct
+   * from Retry (which resubmits the prompt and re-runs everything). The
+   * store probes first, so clicking it when nothing is resumable surfaces a
+   * notice instead of a second error.
+   */
+  onResume?: () => void
 }>): React.JSX.Element {
   const statusCode =
     error instanceof APICallError ? error.statusCode : undefined
@@ -227,6 +243,15 @@ function ChatError({
   return (
     <Banner tone="error">
       <span className="truncate">{describeError(error)}</span>
+      {onResume && (
+        <button
+          type="button"
+          onClick={onResume}
+          className={retryButtonClass}
+        >
+          Resume
+        </button>
+      )}
       {onRetry && (
         <button
           type="button"
