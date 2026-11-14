@@ -10,14 +10,17 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import type { ChatStatus, UIMessage } from 'ai'
+import type { PromptVersion } from '@pydantic-chat/shared'
 import { Pencil, RotateCcw } from 'lucide-react'
 import { transcriptParts } from '../../lib/dataParts'
 import { lastAssistantMessage, messageText } from '../../lib/messages'
+import { versionsForMessage } from '../../lib/versions'
 import {
   formatElapsed,
   showWorkingIndicator,
 } from '../../lib/workingIndicator'
 import { MessagePart } from './MessagePart'
+import { VersionChip } from './VersionChip'
 import {
   ApprovalGroup,
   groupApprovals,
@@ -30,12 +33,18 @@ const STICK_THRESHOLD_PX = 48
 interface MessageListProps {
   messages: UIMessage[]
   status: ChatStatus
+  /**
+   * Replaced prompt versions for this chat (`GET /chats/{id}/versions`) —
+   * filtered per user message to drive the "edited" VersionChip.
+   */
+  versions?: PromptVersion[]
   /** `useChat`'s `addToolApprovalResponse`, threaded to approval cards. */
   onApprovalResponse: ApprovalResponder
   /**
    * Edit save → `sendMessage({text, messageId})` in ChatPanel: the SDK
    * truncates state at that message and resubmits; the server cuts stored
-   * history there (old tail kept as a branch).
+   * history there (old tail kept as a branch). Version picks take the same
+   * path, so the current tail is preserved as another branch too.
    */
   onEditMessage: (messageId: string, text: string) => void
   /**
@@ -49,6 +58,7 @@ interface MessageListProps {
 export function MessageList({
   messages,
   status,
+  versions = [],
   onApprovalResponse,
   onEditMessage,
   onRegenerate,
@@ -106,10 +116,14 @@ export function MessageList({
               <MessageRow
                 key={message.id}
                 message={message}
+                versions={versionsForMessage(versions, message.id)}
                 onApprovalResponse={onApprovalResponse}
                 approvalsDisabled={busy}
                 canEdit={!busy}
                 onStartEdit={() => setEditingId(message.id)}
+                onPickVersion={(version) =>
+                  onEditMessage(message.id, version.text)
+                }
                 canRegenerate={message.id === regenerateId}
                 onRegenerate={() => onRegenerate(message.id)}
               />
@@ -128,19 +142,25 @@ export function MessageList({
 
 function MessageRow({
   message,
+  versions,
   onApprovalResponse,
   approvalsDisabled,
   canEdit,
   onStartEdit,
+  onPickVersion,
   canRegenerate,
   onRegenerate,
 }: Readonly<{
   message: UIMessage
+  /** Replaced versions of this message's prompt (user messages only). */
+  versions: PromptVersion[]
   onApprovalResponse: ApprovalResponder
   approvalsDisabled: boolean
   /** True while no run is live — edit affordance shown on hover. */
   canEdit: boolean
   onStartEdit: () => void
+  /** Version pick → resubmit that prompt text through the edit path. */
+  onPickVersion: (version: PromptVersion) => void
   /** True only for the trailing assistant message in `ready` status. */
   canRegenerate: boolean
   onRegenerate: () => void
@@ -173,6 +193,11 @@ function MessageRow({
             </div>
           </div>
         )}
+        <VersionChip
+          versions={versions}
+          disabled={!canEdit}
+          onPick={onPickVersion}
+        />
         {otherParts.map((part, i) => (
           <div key={i} className="max-w-[85%]">
             <MessagePart

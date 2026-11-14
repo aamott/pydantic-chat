@@ -13,6 +13,7 @@ import { useChat } from '@ai-sdk/react'
 import { APICallError } from 'ai'
 import { AlertCircle, FolderOpen, Settings, X } from 'lucide-react'
 import { findChatSummary, getChat, useChatsStore } from '../../stores/chats'
+import type { PromptVersion } from '@pydantic-chat/shared'
 import type { AppChat } from '../../lib/transport'
 import { asRunMeta, latestDataPart } from '../../lib/dataParts'
 import { lastUserMessage, messageText } from '../../lib/messages'
@@ -20,6 +21,9 @@ import { retryButtonClass } from '../../lib/ui'
 import { MessageList } from './MessageList'
 import { Composer } from './Composer'
 import { RunMetaBadge } from './RunMetaBadge'
+
+/** Stable empty list so the versions selector doesn't churn re-renders. */
+const EMPTY_VERSIONS: PromptVersion[] = []
 
 export function ChatPanel(): React.JSX.Element {
   const activeChatId = useChatsStore((s) => s.activeChatId)
@@ -91,6 +95,10 @@ export function ChatPanel(): React.JSX.Element {
 function ChatView({ chat }: Readonly<{ chat: AppChat }>): React.JSX.Element {
   const stopActive = useChatsStore((s) => s.stopActive)
   const refreshWorkspaces = useChatsStore((s) => s.refreshWorkspaces)
+  const refreshVersions = useChatsStore((s) => s.refreshVersions)
+  const versions = useChatsStore(
+    (s) => s.versions[chat.id] ?? EMPTY_VERSIONS,
+  )
   /* The chat's own workspace — attach picker lists its files. */
   const workspaceId = useChatsStore(
     (s) => findChatSummary(s.workspaces, chat.id)?.workspace_id ?? null,
@@ -106,15 +114,21 @@ function ChatView({ chat }: Readonly<{ chat: AppChat }>): React.JSX.Element {
   } = useChat({ chat, resume: true })
 
   /* Run end (streaming → ready) is when the server auto-title lands —
-   * refresh the workspace list so renamed chats show up. */
+   * refresh the workspace list so renamed chats show up. The same moment
+   * is when the run's save (or a cancelled/failed run's persist) may have
+   * recorded a new branch, so the version lists refresh too — including on
+   * error, since a failed run can still rewrite stored history. */
   const prevStatus = useRef(status)
   useEffect(() => {
     const was = prevStatus.current
     prevStatus.current = status
-    if ((was === 'streaming' || was === 'submitted') && status === 'ready') {
-      void refreshWorkspaces()
+    if (was === 'streaming' || was === 'submitted') {
+      if (status === 'ready') void refreshWorkspaces()
+      if (status === 'ready' || status === 'error') {
+        void refreshVersions(chat.id)
+      }
     }
-  }, [status, refreshWorkspaces])
+  }, [status, refreshWorkspaces, refreshVersions, chat.id])
 
   /* Effective profile + model for the run, announced as the stream's first
    * `data-run-meta` chunk (stream-only → absent on reloaded transcripts). */
@@ -157,6 +171,7 @@ function ChatView({ chat }: Readonly<{ chat: AppChat }>): React.JSX.Element {
       <MessageList
         messages={messages}
         status={status}
+        versions={versions}
         onApprovalResponse={addToolApprovalResponse}
         onEditMessage={resubmitUserMessage}
         onRegenerate={(id) => void regenerate({ messageId: id })}

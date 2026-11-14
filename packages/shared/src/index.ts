@@ -36,6 +36,39 @@ export interface ChatSummary {
 }
 
 /* ------------------------------------------------------------------ */
+/* Prompt versions API contract (GET /api/chats/{id}/versions)         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * One replaced prompt version, produced server-side from a
+ * `ConversationRecord.branches` tip: the branch's first entry that
+ * diverges from the head chain, when it is a user-prompt request.
+ * Picking a version resubmits `text` via `sendMessage({text, messageId:
+ * message_id})` — the same cut semantics as editing, so the current tail
+ * is preserved as another branch, not lost.
+ */
+export interface PromptVersion {
+  /** Entry id of the replaced tail's first entry — the version's stable key. */
+  id: string
+  /**
+   * `ui_message_id` shared by every version of the prompt — equals the
+   * transcript `UIMessage.id` the client resubmits against.
+   */
+  message_id: string
+  /** Branch tip entry id — the `from_entry` a future branch checkout uses. */
+  tip: string
+  /** The prior prompt text, verbatim (needed whole for the resubmit). */
+  text: string
+  /** ISO-8601 timestamp of when this version was sent. */
+  timestamp: string
+}
+
+/** `GET /api/chats/{id}/versions` response — branches oldest-left first. */
+export interface ChatVersionsOut {
+  versions: PromptVersion[]
+}
+
+/* ------------------------------------------------------------------ */
 /* Settings API contract (apps/backend/app/api/settings.py)           */
 /* ------------------------------------------------------------------ */
 

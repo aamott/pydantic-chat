@@ -10,7 +10,12 @@
  */
 import { create } from 'zustand'
 import type { UIMessage } from 'ai'
-import type { ChatSummary, Workspace } from '@pydantic-chat/shared'
+import type {
+  ChatSummary,
+  ChatVersionsOut,
+  PromptVersion,
+  Workspace,
+} from '@pydantic-chat/shared'
 import { apiFetch, apiJson } from '../lib/api'
 import { makeChat, type AppChat } from '../lib/transport'
 
@@ -51,6 +56,9 @@ async function hydrateChat(chatId: string): Promise<void> {
     const messages = await apiJson<UIMessage[]>(
       `/api/chats/${chatId}/messages`,
     )
+    // Versions ride their own endpoint so a stale backend can't break
+    // hydration — refreshVersions swallows its errors.
+    void useChatsStore.getState().refreshVersions(chatId)
     const chat = ensureChat(chatId)
     if (chat.status === 'ready' || chat.status === 'error') {
       // `chat.messages =` is the SDK's hydration setter (same thing
@@ -71,6 +79,14 @@ export interface ChatUpdate {
   thinking?: string | null
   /** Any tool-profile id (builtin or custom), or null to inherit. */
   permission_profile?: string | null
+}
+
+/** Fields `PATCH /api/workspaces/{id}` accepts for workspace-level overrides. */
+export interface WorkspaceUpdate {
+  /** Any tool-profile id (builtin or custom), or null to inherit global. */
+  permission_profile?: string | null
+  /** Server-name -> enabled mask over the global MCP registry; null inherits. */
+  mcp_overrides?: Record<string, boolean> | null
 }
 
 /**
@@ -106,6 +122,12 @@ interface ChatsState {
   backendError: string | null
   /** Transient user-facing notice (deleted chat, failed action). */
   notice: string | null
+  /**
+   * Replaced prompt versions per chat id (`GET /chats/{id}/versions`) —
+   * server truth for the edited-message switcher, refreshed on hydrate and
+   * after each run ends.
+   */
+  versions: Record<string, PromptVersion[]>
 
   /** GET workspaces, then pick the first workspace + a chat as active. */
   loadWorkspaces: () => Promise<void>
@@ -122,10 +144,17 @@ interface ChatsState {
    * overrides (null inherits); false on failure.
    */
   updateChat: (chatId: string, patch: ChatUpdate) => Promise<boolean>
+  /** PATCH /api/workspaces/{id} — workspace-level overrides; false on failure. */
+  updateWorkspace: (
+    workspaceId: string,
+    patch: WorkspaceUpdate,
+  ) => Promise<boolean>
   /** DELETE /api/chats/{id} — prune it; selects a sibling when it was active. */
   deleteChat: (chatId: string) => Promise<void>
   /** DELETE /api/workspaces/{id} — prune it + its chats; activates a sibling. */
   deleteWorkspace: (workspaceId: string) => Promise<void>
+  /** Re-pull a chat's prompt versions after a save (run end, hydrate). */
+  refreshVersions: (chatId: string) => Promise<void>
   /** Point the panel at a chat, hydrating its transcript on first open. */
   selectChat: (chatId: string) => Promise<void>
   /** Switch the active workspace (and its last/first chat). */
@@ -183,6 +212,7 @@ export const useChatsStore = create<ChatsState>()((set, get) => {
     loaded: false,
     backendError: null,
     notice: null,
+    versions: {},
 
     loadWorkspaces: async () => {
       try {
@@ -325,6 +355,36 @@ export const useChatsStore = create<ChatsState>()((set, get) => {
       }
     },
 
+    updateWorkspace: async (workspaceId, patch) => {
+      try {
+        const updated = await apiJson<Workspace>(
+          `/api/workspaces/${workspaceId}`,
+          {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            // Undefined keys serialize away, so only provided fields are sent.
+            body: JSON.stringify(patch),
+          },
+        )
+        set((s) => ({
+          workspaces: s.workspaces.map((w) =>
+            // The response is a full WorkspaceOut (chats included) — replace
+            // wholesale so every workspace-level field refreshes together.
+            w.id === workspaceId ? updated : w,
+          ),
+        }))
+        return true
+      } catch (error) {
+        set({
+          notice:
+            error instanceof Error
+              ? `Couldn't update workspace: ${error.message}`
+              : "Couldn't update workspace",
+        })
+        return false
+      }
+    },
+
     deleteChat: async (chatId) => {
       // Look up the workspace before the delete so the fallback selection
       // still knows which sibling chats remain.
@@ -350,19 +410,24 @@ export const useChatsStore = create<ChatsState>()((set, get) => {
       }
       chatRegistry.delete(chatId)
       hydratedChats.delete(chatId)
-      set((s) => ({
-        workspaces: s.workspaces.map((w) =>
-          (w.chats ?? []).some((c) => c.id === chatId)
-            ? {
-                ...w,
-                chats: (w.chats ?? []).filter((c) => c.id !== chatId),
-                // The server clears the pointer on delete; mirror that.
-                last_chat_id:
-                  w.last_chat_id === chatId ? null : w.last_chat_id,
-              }
-            : w,
-        ),
-      }))
+      set((s) => {
+        const versions = { ...s.versions }
+        delete versions[chatId]
+        return {
+          versions,
+          workspaces: s.workspaces.map((w) =>
+            (w.chats ?? []).some((c) => c.id === chatId)
+              ? {
+                  ...w,
+                  chats: (w.chats ?? []).filter((c) => c.id !== chatId),
+                  // The server clears the pointer on delete; mirror that.
+                  last_chat_id:
+                    w.last_chat_id === chatId ? null : w.last_chat_id,
+                }
+              : w,
+          ),
+        }
+      })
       if (get().activeChatId === chatId) {
         const next = (workspace?.chats ?? []).find((c) => c.id !== chatId)
         if (next) {
@@ -397,9 +462,14 @@ export const useChatsStore = create<ChatsState>()((set, get) => {
         chatRegistry.delete(chat.id)
         hydratedChats.delete(chat.id)
       }
-      set((s) => ({
-        workspaces: s.workspaces.filter((w) => w.id !== workspaceId),
-      }))
+      set((s) => {
+        const versions = { ...s.versions }
+        for (const chat of workspace?.chats ?? []) delete versions[chat.id]
+        return {
+          versions,
+          workspaces: s.workspaces.filter((w) => w.id !== workspaceId),
+        }
+      })
       if (get().activeWorkspaceId === workspaceId) {
         const next = get().workspaces[0]
         if (next) {
@@ -407,6 +477,17 @@ export const useChatsStore = create<ChatsState>()((set, get) => {
         } else {
           set({ activeWorkspaceId: null, activeChatId: null })
         }
+      }
+    },
+
+    refreshVersions: async (chatId) => {
+      try {
+        const body = await apiJson<ChatVersionsOut>(
+          `/api/chats/${chatId}/versions`,
+        )
+        set((s) => ({ versions: { ...s.versions, [chatId]: body.versions } }))
+      } catch {
+        /* stale fetch (deleted chat, old backend) — keep the last list */
       }
     },
 
@@ -426,13 +507,18 @@ export const useChatsStore = create<ChatsState>()((set, get) => {
         const status = (error as { status?: number }).status
         if (status === 404) {
           // Chat was deleted server-side — prune it and fall back.
-          set((s) => ({
-            workspaces: s.workspaces.map((w) => ({
-              ...w,
-              chats: (w.chats ?? []).filter((c) => c.id !== chatId),
-            })),
-            notice: 'That chat no longer exists.',
-          }))
+          set((s) => {
+            const versions = { ...s.versions }
+            delete versions[chatId]
+            return {
+              versions,
+              workspaces: s.workspaces.map((w) => ({
+                ...w,
+                chats: (w.chats ?? []).filter((c) => c.id !== chatId),
+              })),
+              notice: 'That chat no longer exists.',
+            }
+          })
           chatRegistry.delete(chatId)
           hydratedChats.delete(chatId)
           if (workspace) await activateWorkspaceChat(workspace)

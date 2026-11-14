@@ -3,6 +3,9 @@
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
+from pydantic_ai.conversation_store import ConversationEntry
+from pydantic_ai.messages import ModelRequest, UserPromptPart
+from pydantic_ai.ui._utils import get_ui_message_id
 from pydantic_ai.ui.vercel_ai import VercelAIAdapter
 
 from app.agent.models import (
@@ -11,7 +14,13 @@ from app.agent.models import (
     split_model_spec,
 )
 from app.api.deps import StoreDep
-from app.api.schemas import ChatCreate, ChatPatch, ChatSummaryOut
+from app.api.schemas import (
+    ChatCreate,
+    ChatPatch,
+    ChatSummaryOut,
+    ChatVersionsOut,
+    PromptVersionOut,
+)
 from app.config import DEFAULT_MODEL
 
 router = APIRouter(prefix="/api", tags=["chats"])
@@ -139,3 +148,74 @@ async def get_chat_messages(
         message.model_dump(mode="json", by_alias=True, exclude_none=True)
         for message in ui_messages
     ]
+
+
+@router.get("/chats/{chat_id}/versions")
+async def get_chat_versions(chat_id: str, store: StoreDep) -> ChatVersionsOut:
+    """The chat's replaced prompt versions, oldest-left branch first.
+
+    Every resubmit/edit cuts the stored history at a user prompt and keeps
+    the replaced tail as a ``ConversationRecord.branches`` tip. Each version
+    here is a branch's first entry that diverges from the head chain, when
+    that entry is a user-prompt request: its ``ui_message_id`` equals the
+    transcript ``UIMessage.id`` the client resubmits against, so the
+    renderer can attach an "edited" switcher to the right bubble.
+    """
+    chat = await store.get_chat(chat_id)
+    if chat is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Chat not found"
+        )
+    record = await store.read_record(chat_id)
+    if record is None or record.scope != chat.workspace_id:
+        return ChatVersionsOut()
+    head = await store.read_history(record.head_id)
+    versions: list[PromptVersionOut] = []
+    for tip in record.branches:
+        branch = await store.read_history(tip)
+        diverging = _first_diverging_entry(head, branch)
+        if diverging is not None and (
+            version := _prompt_version(diverging, tip)
+        ) is not None:
+            versions.append(version)
+    return ChatVersionsOut(versions=versions)
+
+
+def _first_diverging_entry(
+    head: list[ConversationEntry], branch: list[ConversationEntry]
+) -> ConversationEntry | None:
+    """The first ``branch`` entry the head chain doesn't also contain.
+
+    A branch shares its prefix entries with the head chain (same store
+    ids), so the first id mismatch — or the first entry past the head's
+    end — is where the replaced tail begins.
+    """
+    for index, entry in enumerate(branch):
+        if index >= len(head) or head[index].id != entry.id:
+            return entry
+    return None
+
+
+def _prompt_version(
+    entry: ConversationEntry, tip: str
+) -> PromptVersionOut | None:
+    """A version row when ``entry`` is a ui-stamped user-prompt request."""
+    message = entry.message
+    if not isinstance(message, ModelRequest):
+        return None
+    prompt = next(
+        (part for part in message.parts if isinstance(part, UserPromptPart)),
+        None,
+    )
+    if prompt is None or not isinstance(prompt.content, str):
+        return None
+    message_id = get_ui_message_id(message)
+    if message_id is None:
+        return None
+    return PromptVersionOut(
+        id=entry.id,
+        message_id=message_id,
+        tip=tip,
+        text=prompt.content,
+        timestamp=prompt.timestamp,
+    )
