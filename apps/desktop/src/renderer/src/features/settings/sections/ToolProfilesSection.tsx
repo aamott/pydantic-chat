@@ -498,10 +498,11 @@ function ProfileEditor({
             disabled={readOnly}
             className="mt-0.5 accent-blue-600"
           />
-          <span>
-            <span className="block text-sm text-secondary">
-              Read-only workspace
-            </span>
+          {/* The name text must sit within label-depth 2 for S6853's
+              accessible-text check — keep it a direct child of this
+              span rather than nesting it inside another element. */}
+          <span className="text-sm text-secondary">
+            Read-only workspace
             <span className="block text-xs text-faint">
               Mount the workspace read-only so file writes fail outright.
             </span>

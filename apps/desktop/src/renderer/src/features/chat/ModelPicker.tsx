@@ -357,13 +357,10 @@ export function ModelPicker({
 
           <div
             id="model-picker-list"
-            // Programmatically focusable for the aria-activedescendant
-            // pattern — keyboard nav lives on the search input, so the
-            // container stays out of the tab order. Plain element with
-            // native button rows: no listbox/option roles (S6852).
+            // aria-activedescendant target for the search input's
+            // aria-controls — the rows carry their own handlers so this
+            // wrapper needs none (a plain div with listeners trips S6848).
             tabIndex={-1}
-            onKeyDown={onListKeyDown}
-            onMouseLeave={scheduleHide}
             className="max-h-80 overflow-y-auto p-1"
           >
             {visibleRows.length === 0 && (
@@ -408,6 +405,8 @@ export function ModelPicker({
                   registerRef={(index, el) => {
                     rowRefs.current[index] = el
                   }}
+                  onKeyDown={onListKeyDown}
+                  onMouseLeave={scheduleHide}
                 />
               ),
             )}
@@ -444,6 +443,10 @@ interface ModelRowProps {
   /** Hover or DOM focus — syncs the highlight and opens the flyout. */
   onActivate: (row: Row, el: HTMLElement, index: number) => void
   registerRef: (index: number, el: HTMLButtonElement | null) => void
+  /** Arrow-key nav between row buttons (keydown bubbles identically). */
+  onKeyDown: (e: React.KeyboardEvent) => void
+  /** Starts the flyout hide grace — the next row's activate cancels it. */
+  onMouseLeave: () => void
 }
 
 function ModelRow({
@@ -454,6 +457,8 @@ function ModelRow({
   onSelect,
   onActivate,
   registerRef,
+  onKeyDown,
+  onMouseLeave,
 }: Readonly<ModelRowProps>): React.JSX.Element {
   const { row, index } = item
   return (
@@ -465,6 +470,8 @@ function ModelRow({
       onClick={() => onSelect(row)}
       onMouseEnter={(e) => onActivate(row, e.currentTarget, index)}
       onFocus={(e) => onActivate(row, e.currentTarget, index)}
+      onKeyDown={onKeyDown}
+      onMouseLeave={onMouseLeave}
       title={row.model.id}
       className={`${optionRowClass} focus:outline-none ${
         active ? 'bg-raised' : ''

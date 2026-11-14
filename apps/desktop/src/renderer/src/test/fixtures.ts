@@ -29,7 +29,9 @@ export function chatSummary(overrides: Partial<ChatSummary> = {}): ChatSummary {
 export function workspace(overrides: Partial<Workspace> = {}): Workspace {
   return {
     id: 'ws-1',
-    path: '/tmp/ws-1',
+    // A user-home path, not /tmp — the literal is display-only fixture data,
+    // but S5443 flags world-writable paths even in tests.
+    path: '/home/test/ws-1',
     display_name: 'ws-1',
     last_chat_id: null,
     last_opened_at: 0,
