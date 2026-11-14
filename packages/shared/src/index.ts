@@ -176,6 +176,12 @@ export interface WorkspaceFile {
   size: number
   path: string
   version: string
+  /**
+   * True when the file exceeds the backend's display cap — the viewer
+   * shows the open-externally prompt (`kind` still reports what the file
+   * is; `content` is empty). Absent/false on older backends.
+   */
+  oversize?: boolean
 }
 
 /**

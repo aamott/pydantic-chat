@@ -118,7 +118,119 @@ def _language_for(name: str) -> str | None:
 # Extensions rendered inline as images rather than as text. Detection is
 # extension-only (before the NUL sniff): an SVG is perfectly valid UTF-8
 # text but still wants the image branch.
-_IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"})
+_IMAGE_SUFFIXES = frozenset(
+    {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".ico", ".avif"}
+)
+
+# Extensions classified binary by name — content sniffing can't catch
+# ASCII-shaped containers (`.stl`, `.dxf` can be pure text yet are CAD data,
+# not files you edit), and a large archive/executable may carry its first
+# NUL past the sniff window. Formats that are genuinely editable text stay
+# off this list (`.gltf` is JSON, `.gcode`/`.scad` are real source).
+_KNOWN_BINARY_SUFFIXES = frozenset(
+    {
+        # 3D / CAD (binary AND ascii-shaped variants)
+        ".3mf",
+        ".stl",
+        ".step",
+        ".stp",
+        ".igs",
+        ".iges",
+        ".dxf",
+        ".glb",
+        ".fbx",
+        ".blend",
+        ".obj",
+        # archives / disk images
+        ".zip",
+        ".7z",
+        ".rar",
+        ".gz",
+        ".bz2",
+        ".xz",
+        ".zst",
+        ".tar",
+        ".iso",
+        ".dmg",
+        ".img",
+        # executables / compiled
+        ".exe",
+        ".dll",
+        ".so",
+        ".dylib",
+        ".wasm",
+        ".o",
+        ".a",
+        ".lib",
+        ".class",
+        ".jar",
+        ".pyc",
+        ".pyo",
+        ".pyd",
+        ".whl",
+        # office docs
+        ".pdf",
+        ".doc",
+        ".docx",
+        ".xls",
+        ".xlsx",
+        ".ppt",
+        ".pptx",
+        ".pages",
+        ".numbers",
+        ".key",
+        # audio / video
+        ".mp3",
+        ".mp4",
+        ".m4a",
+        ".wav",
+        ".flac",
+        ".ogg",
+        ".opus",
+        ".aac",
+        ".mov",
+        ".avi",
+        ".mkv",
+        ".webm",
+        ".mpg",
+        ".mpeg",
+        # fonts + non-renderable image formats
+        ".woff",
+        ".woff2",
+        ".ttf",
+        ".otf",
+        ".eot",
+        ".tif",
+        ".tiff",
+        ".heic",
+        ".heif",
+        ".psd",
+        ".raw",
+        ".dng",
+        # data / ML artifacts
+        ".db",
+        ".sqlite",
+        ".sqlite3",
+        ".npy",
+        ".npz",
+        ".pkl",
+        ".pickle",
+        ".onnx",
+        ".pt",
+        ".pth",
+        ".ckpt",
+        ".gguf",
+        ".safetensors",
+        ".h5",
+        ".hdf5",
+        ".parquet",
+        ".feather",
+        ".arrow",
+        # misc
+        ".bin",
+        ".dat",
+    }
+)
 
 FileKind = Literal["text", "image", "binary"]
 
@@ -128,12 +240,15 @@ def _kind_for(name: str, data: bytes) -> FileKind:
 
     Image extensions win by name — content sniffing can't tell an SVG from
     other markup, and a mislabeled image still renders best-effort through
-    ``<img>``. Everything else is text unless a NUL byte lands in the first
-    ``BINARY_SNIFF_BYTES`` (the same heuristic the old read path used to
-    reject binaries outright).
+    ``<img>``. Known-binary extensions win next: ASCII-shaped CAD data and
+    late-NUL archives would otherwise slip the sniff. Everything else is
+    text unless a NUL byte lands in the first ``BINARY_SNIFF_BYTES``.
     """
-    if Path(name).suffix.lower() in _IMAGE_SUFFIXES:
+    suffix = Path(name).suffix.lower()
+    if suffix in _IMAGE_SUFFIXES:
         return "image"
+    if suffix in _KNOWN_BINARY_SUFFIXES:
+        return "binary"
     if b"\x00" in data[:BINARY_SNIFF_BYTES]:
         return "binary"
     return "text"
@@ -173,15 +288,14 @@ def _resolve_workspace_file(root: Path, raw: str) -> Path:
     return resolved
 
 
-def _read_file_bytes(target: Path) -> tuple[bytes, int]:
-    """Stat and read a regular file, enforcing the size cap.
+def _stat_regular_file(target: Path) -> os.stat_result:
+    """Stat ``target`` as a regular file — no bytes read.
 
-    Runs on a worker thread; returns the raw bytes and byte size. Binary
-    content is *not* rejected here — ``_kind_for`` classifies it, the JSON
-    read withholds the body, and the raw route serves it verbatim.
+    Runs on a worker thread; the JSON read uses it to classify a file
+    before deciding whether a full read is even warranted.
 
     Raises:
-        HTTPException: 404 missing, 400 not a regular file, 413 too large.
+        HTTPException: 404 missing, 400 not a regular file.
     """
     try:
         info = target.stat()
@@ -193,6 +307,27 @@ def _read_file_bytes(target: Path) -> tuple[bytes, int]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Path is not a file"
         )
+    return info
+
+
+def _read_head(target: Path) -> bytes:
+    """The leading ``BINARY_SNIFF_BYTES`` of ``target`` — kind sniffing + the
+    drift token for files the viewer never sees whole."""
+    with target.open("rb") as fh:
+        return fh.read(BINARY_SNIFF_BYTES)
+
+
+def _read_file_bytes(target: Path) -> tuple[bytes, int]:
+    """Stat and read a regular file, enforcing the size cap.
+
+    Runs on a worker thread; returns the raw bytes and byte size. Binary
+    content is *not* rejected here — ``_kind_for`` classifies it, the JSON
+    read withholds the body, and the raw route serves it verbatim.
+
+    Raises:
+        HTTPException: 404 missing, 400 not a regular file, 413 too large.
+    """
+    info = _stat_regular_file(target)
     if info.st_size > MAX_FILE_BYTES:
         raise HTTPException(
             status_code=status.HTTP_413_CONTENT_TOO_LARGE,
@@ -210,6 +345,17 @@ def _file_version(data: bytes) -> str:
     bytes shouldn't read as drift.
     """
     return hashlib.sha256(data).hexdigest()
+
+
+def _partial_version(head: bytes, size: int) -> str:
+    """Drift token for files the viewer never sees whole (binary/oversize).
+
+    sha256 over the head window plus the byte size — cheap on any size, and
+    a change almost certainly alters one of the two. Not comparable to
+    ``_file_version`` output: a file crossing into/out of oversize gets a
+    fresh token either way, which correctly reads as drift.
+    """
+    return hashlib.sha256(head + str(size).encode()).hexdigest()
 
 
 def _write_file_bytes(target: Path, content: str, if_match: str | None) -> bytes:
@@ -397,18 +543,34 @@ async def read_file(
     Text files carry a UTF-8-decoded ``content``; ``kind`` is ``'image'`` or
     ``'binary'`` when the file isn't text-shaped, and then ``content`` is
     empty — image bytes come from ``GET /api/files/raw`` and binaries are
-    opened externally, so no undecodable body crosses the wire.
+    opened externally, so no undecodable body crosses the wire. Kind and
+    size are determined from a stat plus a bounded head read, so a large
+    binary classifies correctly instead of dying on the size cap; any file
+    past ``MAX_FILE_BYTES`` returns ``oversize=True`` (the viewer's
+    open-externally prompt, not an error).
     """
     workspace = await _require_workspace(store, workspace_id)
     root = _existing_root(workspace)
     target = _resolve_workspace_file(root, path)
-    data, size = await run_sync(_read_file_bytes, target)
-    kind = _kind_for(target.name, data)
+    info = await run_sync(_stat_regular_file, target)
+    head = await run_sync(_read_head, target)
+    kind = _kind_for(target.name, head)
+    if kind != "text" or info.st_size > MAX_FILE_BYTES:
+        return FileOut(
+            content="",
+            kind=kind,
+            language=_language_for(target.name),
+            size=info.st_size,
+            path=target.relative_to(root).as_posix(),
+            version=_partial_version(head, info.st_size),
+            oversize=info.st_size > MAX_FILE_BYTES,
+        )
+    data = await run_sync(target.read_bytes)
     return FileOut(
-        content=data.decode("utf-8", errors="replace") if kind == "text" else "",
+        content=data.decode("utf-8", errors="replace"),
         kind=kind,
         language=_language_for(target.name),
-        size=size,
+        size=len(data),
         path=target.relative_to(root).as_posix(),
         version=_file_version(data),
     )

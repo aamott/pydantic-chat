@@ -175,6 +175,10 @@ class FileOut(BaseModel):
     size: int
     path: str
     version: str
+    """True when the file exceeds ``MAX_FILE_BYTES`` — the viewer shows the
+    open-externally prompt (a large file is a display-limit fact, not an
+    error, and ``kind`` still reports what the file actually is)."""
+    oversize: bool = False
 
 
 class FileWriteIn(BaseModel):

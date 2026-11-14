@@ -111,6 +111,15 @@ describe('viewerModeFor', () => {
     expect(viewerModeFor('image', 'markdown', 'x.svg')).toBe('image')
   })
 
+  it('routes oversize files to the open-externally branch regardless of kind', () => {
+    // A >2MB text file still can't display — oversize wins over kind AND
+    // the language/extension markdown hints.
+    expect(viewerModeFor('text', 'python', 'big.py', true)).toBe('oversize')
+    expect(viewerModeFor('text', 'markdown', 'big.md', true)).toBe('oversize')
+    expect(viewerModeFor('binary', null, 'huge.3mf', true)).toBe('oversize')
+    expect(viewerModeFor('image', null, 'huge.png', true)).toBe('oversize')
+  })
+
   it('routes text kinds to editor or markdown', () => {
     expect(viewerModeFor('text', 'typescript', 'src/main.ts')).toBe('editor')
     expect(viewerModeFor('text', null, 'data.xyz')).toBe('editor')

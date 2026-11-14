@@ -158,15 +158,21 @@ def test_read_file_missing_and_directory(client):
     )
     big = project / "big.txt"
     big.write_text("x" * (2 * 1024 * 1024 + 1))
-    assert (
-        _get(
-            test_client,
-            "/api/files",
-            workspace_id=workspace_id,
-            path="big.txt",
-        ).status_code
-        == 413
+    response = _get(
+        test_client,
+        "/api/files",
+        workspace_id=workspace_id,
+        path="big.txt",
     )
+    # Oversize files are a display-limit fact, not an error — 200 with the
+    # oversize flag so the viewer can offer open-externally.
+    assert response.status_code == 200
+    body = response.json()
+    assert body["kind"] == "text"
+    assert body["oversize"] is True
+    assert body["content"] == ""
+    assert body["size"] == 2 * 1024 * 1024 + 1
+    assert body["version"]
 
 
 # --------------------------------------------------------------------- #
@@ -210,6 +216,82 @@ def test_read_file_kind_binary_on_nul_sniff(client):
         body = response.json()
         assert body["kind"] == "binary", path
         assert body["content"] == "", path
+
+
+def test_read_file_kind_binary_by_extension(client):
+    """Known-binary extensions classify without a NUL — including ASCII
+    content (a text `.stl` is still CAD data, not something to edit)."""
+    test_client, project = client
+    workspace_id = _workspace_id(test_client, project)
+    for path, payload in (
+        # ASCII-shaped bodies the NUL sniff would never catch:
+        ("mesh.stl", "solid cube\nendsolid cube\n"),
+        ("model.obj", "v 0 0 0\nv 1 0 0\n"),
+        ("sketch.dxf", "0\nSECTION\n"),
+        ("model.3mf", b"PK\x03\x04" + b"\x00" * 100),
+        ("app.zip", b"PK\x03\x04" + b"\x00" * 100),
+        ("mod.wasm", b"\x00asm\x01\x00\x00\x00"),
+        ("doc.pdf", "%PDF-1.4 plain header\n"),
+    ):
+        (project / path).write_bytes(
+            payload.encode() if isinstance(payload, str) else payload
+        )
+        body = _get(
+            test_client, "/api/files", workspace_id=workspace_id, path=path
+        ).json()
+        assert body["kind"] == "binary", path
+        assert body["content"] == "", path
+
+
+def test_read_file_oversize_binary_is_binary_not_error(client):
+    """The core regression: a >2MB binary classified via head-read + stat
+    instead of dying on the size cap before kind detection ran."""
+    test_client, project = client
+    workspace_id = _workspace_id(test_client, project)
+    big = project / "scene.3mf"
+    big.write_bytes(b"PK\x03\x04" + b"\x00" * (2 * 1024 * 1024 + 1))
+    response = _get(
+        test_client, "/api/files", workspace_id=workspace_id, path="scene.3mf"
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["kind"] == "binary"
+    assert body["oversize"] is True
+    assert body["content"] == ""
+    assert body["size"] == 2 * 1024 * 1024 + 5
+    assert body["version"]
+
+
+def test_read_file_oversize_unknown_extension_still_detected(client):
+    """No extension list catch needed for a big NUL-sniff binary either —
+    the head read classifies before the cap is consulted."""
+    test_client, project = client
+    workspace_id = _workspace_id(test_client, project)
+    big = project / "data.xyz"
+    big.write_bytes(b"\x00\x01\x02" + b"\x00" * (2 * 1024 * 1024 + 1))
+    body = _get(
+        test_client, "/api/files", workspace_id=workspace_id, path="data.xyz"
+    ).json()
+    assert body["kind"] == "binary"
+    assert body["oversize"] is True
+    assert body["content"] == ""
+
+
+def test_read_file_oversize_version_tracks_size(client):
+    """The partial version (head+size hash) must react to edits that change
+    size — it's the drift signal when the client can't diff bytes."""
+    test_client, project = client
+    workspace_id = _workspace_id(test_client, project)
+    big = project / "big2.txt"
+    big.write_text("a" * (2 * 1024 * 1024 + 1))
+    first = _get(
+        test_client, "/api/files", workspace_id=workspace_id, path="big2.txt"
+    ).json()["version"]
+    big.write_text("a" * (2 * 1024 * 1024 + 2))
+    second = _get(
+        test_client, "/api/files", workspace_id=workspace_id, path="big2.txt"
+    ).json()["version"]
+    assert first != second
 
 
 def test_read_file_kind_language_hints(client):

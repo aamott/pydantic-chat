@@ -240,20 +240,30 @@ export function refetchOutcome(
  * `image` renders the raw-bytes blob inline; `binary` is the
  * open-externally panel.
  */
-export type FileViewerMode = 'editor' | 'markdown' | 'image' | 'binary'
+export type FileViewerMode =
+  | 'editor'
+  | 'markdown'
+  | 'image'
+  | 'binary'
+  | 'oversize'
 
 const MARKDOWN_SUFFIX = /\.(?:md|markdown)$/i
 
 /**
- * kind → viewer-mode mapping. The backend's `kind` decides first; markdown
- * is the only text sub-mode, picked by the language hint or the extension
- * (`.md`/`.markdown`) as a fallback for older backends.
+ * kind → viewer-mode mapping. `oversize` wins over everything — a file
+ * past the display cap gets the open-externally panel regardless of what
+ * it actually is (the raw route caps image bytes too). The backend's
+ * `kind` decides next; markdown is the only text sub-mode, picked by the
+ * language hint or the extension (`.md`/`.markdown`) as a fallback for
+ * older backends.
  */
 export function viewerModeFor(
   kind: FileKind,
   language: string | null,
   path: string,
+  oversize = false,
 ): FileViewerMode {
+  if (oversize) return 'oversize'
   if (kind === 'image') return 'image'
   if (kind === 'binary') return 'binary'
   return language === 'markdown' || MARKDOWN_SUFFIX.test(path)
@@ -602,13 +612,13 @@ export function FileViewer({
       const res = await apiFetch(`/api/files?${params}`)
       if (!res.ok) throw new Error(await describeError(res))
       const file = (await res.json()) as WorkspaceFile
-      const mode = viewerModeFor(file.kind, file.language, path)
+      const mode = viewerModeFor(file.kind, file.language, path, file.oversize)
 
       /* Non-text kinds carry no decoded body — the text-buffer flow below
        * doesn't apply. `version` equality stands in for refetchOutcome's
        * content comparison: identical bytes keep the current view, anything
        * else rebuilds (images additionally re-fetch their raw blob). */
-      if (mode === 'image' || mode === 'binary') {
+      if (mode === 'image' || mode === 'binary' || mode === 'oversize') {
         const stale =
           !isDisplayedFile(loadedRef.current, workspaceId, path) ||
           loadedRef.current?.version !== file.version
@@ -996,12 +1006,16 @@ export function FileViewer({
             )}
           </div>
         )}
-        {/* Binary branch: no bytes ship to the renderer — open externally. */}
-        {state.status === 'ready' && state.mode === 'binary' && (
+        {/* Binary/oversize branch: no body ships to the renderer for
+            either — the file gets opened externally instead. */}
+        {state.status === 'ready' &&
+          (state.mode === 'binary' || state.mode === 'oversize') && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-surface px-6 text-center">
             <FileWarning className="h-8 w-8 text-faint" />
             <p className="text-sm text-muted">
-              Can't display this file — it isn't text.
+              {state.mode === 'oversize'
+                ? `Can't display this file — too large (${formatSize(state.size)}).`
+                : "Can't display this file — it isn't text."}
             </p>
             <button
               type="button"
