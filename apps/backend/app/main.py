@@ -44,9 +44,7 @@ def create_app() -> FastAPI:
     """Build the FastAPI app. Token arrives via APP_TOKEN env from Electron."""
     app = FastAPI(title="pydantic-chat-backend", lifespan=_lifespan)
 
-    app.add_middleware(
-        TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost"]
-    )
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost"])
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[os.environ.get("RENDERER_ORIGIN", "http://localhost:5173")],

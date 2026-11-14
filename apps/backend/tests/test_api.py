@@ -202,9 +202,7 @@ def test_workspace_permission_profile_patch(client):
         == 200
     )
     assert (
-        test_client.get("/api/workspaces", headers=AUTH).json()[0][
-            "permission_profile"
-        ]
+        test_client.get("/api/workspaces", headers=AUTH).json()[0]["permission_profile"]
         == "everything"
     )
     # A non-string value is still a schema error, not a silent write.
@@ -244,12 +242,9 @@ def test_workspace_mcp_overrides_patch(client):
         "web-tools": True,
     }
     # The mask survives a fresh read of the workspace list.
-    assert (
-        test_client.get("/api/workspaces", headers=AUTH).json()[0][
-            "mcp_overrides"
-        ]
-        == {"fs-tools": False, "web-tools": True}
-    )
+    assert test_client.get("/api/workspaces", headers=AUTH).json()[0][
+        "mcp_overrides"
+    ] == {"fs-tools": False, "web-tools": True}
 
     # A non-dict value is a schema error, not a silent write.
     assert (
@@ -277,12 +272,10 @@ def test_chat_delete(client):
     chat = _create_chat(test_client, workspace["id"])
 
     assert (
-        test_client.delete(f"/api/chats/{chat['id']}", headers=AUTH).status_code
-        == 204
+        test_client.delete(f"/api/chats/{chat['id']}", headers=AUTH).status_code == 204
     )
     assert (
-        test_client.delete(f"/api/chats/{chat['id']}", headers=AUTH).status_code
-        == 404
+        test_client.delete(f"/api/chats/{chat['id']}", headers=AUTH).status_code == 404
     )
     listing = test_client.get("/api/workspaces", headers=AUTH).json()
     assert listing[0]["chats"] == []
@@ -324,9 +317,7 @@ def test_messages_endpoint_empty_then_dumped(client):
 
     asyncio.run(seed())
 
-    messages = test_client.get(
-        f"/api/chats/{chat['id']}/messages", headers=AUTH
-    ).json()
+    messages = test_client.get(f"/api/chats/{chat['id']}/messages", headers=AUTH).json()
     assert [m["role"] for m in messages] == ["user", "assistant"]
     assert messages[0]["parts"][0]["type"] == "text"
     assert messages[0]["parts"][0]["text"] == "hi"
@@ -341,7 +332,9 @@ def _prompt(text: str, ui_message_id: str | None = None) -> ModelRequest:
     return request
 
 
-def _entries(*messages, parent: ConversationEntry | None = None) -> list[ConversationEntry]:
+def _entries(
+    *messages, parent: ConversationEntry | None = None
+) -> list[ConversationEntry]:
     """A parent-linked entry chain over ``messages``, oldest first.
 
     ``parent`` makes the chain a *tail*: the first entry points at it, which
@@ -372,10 +365,7 @@ def test_versions_endpoint(client):
     chat = _create_chat(test_client, workspace["id"])
 
     # Unknown chat -> 404; known chat with no conversation -> empty.
-    assert (
-        test_client.get("/api/chats/nope/versions", headers=AUTH).status_code
-        == 404
-    )
+    assert test_client.get("/api/chats/nope/versions", headers=AUTH).status_code == 404
     empty = test_client.get(f"/api/chats/{chat['id']}/versions", headers=AUTH)
     assert empty.status_code == 200
     assert empty.json() == {"versions": []}
@@ -405,9 +395,7 @@ def test_versions_endpoint(client):
     )
     _seed_record(test_client, record, [shared[0], *head[1:], *branch_v1], None)
 
-    body = test_client.get(
-        f"/api/chats/{chat['id']}/versions", headers=AUTH
-    ).json()
+    body = test_client.get(f"/api/chats/{chat['id']}/versions", headers=AUTH).json()
     assert len(body["versions"]) == 1
     version = body["versions"][0]
     assert version["message_id"] == "m-1"

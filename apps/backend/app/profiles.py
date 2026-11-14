@@ -202,7 +202,9 @@ def resolve_tool_profile(chat_settings: Mapping[str, Any] | Any) -> ToolProfile:
     builtin id (the API rejects them anyway). An unknown or missing id falls
     back to builtin ``manual`` with a warning, matching the legacy behavior.
     """
-    profile_id = _setting(chat_settings, "permission_profile") or DEFAULT_PERMISSION_PROFILE
+    profile_id = (
+        _setting(chat_settings, "permission_profile") or DEFAULT_PERMISSION_PROFILE
+    )
     for profile in BUILTIN_PROFILES:
         if profile.id == profile_id:
             return profile

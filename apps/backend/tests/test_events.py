@@ -70,7 +70,9 @@ async def test_plan_snapshot_emitted_through_wrapped_capability():
     wrapped = WrapperCapability(wrapped=Planning(store=store))
     ctx = _StubCtx({"coder": wrapped})
 
-    await events.publish_plan_snapshot(ctx, PlanCreatedEvent(item=PlanItem(content="x")))
+    await events.publish_plan_snapshot(
+        ctx, PlanCreatedEvent(item=PlanItem(content="x"))
+    )
 
     (event,) = ctx.emitted
     assert event.tasks[0]["content"] == "x"
@@ -78,7 +80,9 @@ async def test_plan_snapshot_emitted_through_wrapped_capability():
 
 async def test_plan_event_without_planning_emits_nothing():
     ctx = _StubCtx({})
-    await events.publish_plan_snapshot(ctx, PlanCreatedEvent(item=PlanItem(content="x")))
+    await events.publish_plan_snapshot(
+        ctx, PlanCreatedEvent(item=PlanItem(content="x"))
+    )
     assert ctx.emitted == []
 
 
@@ -111,7 +115,9 @@ async def test_plan_snapshot_serializes_to_data_plan_chunk():
 def test_shell_event_phases_map_to_activity():
     """Each `shell.*` event maps onto one `data-shell` phase, with attribution."""
     started = events._shell_activity(
-        CommandStartedEvent(command="ls -la", pid=1234, tool_call_id="tc-1", tool_name="shell")
+        CommandStartedEvent(
+            command="ls -la", pid=1234, tool_call_id="tc-1", tool_name="shell"
+        )
     )
     assert started.phase == "started"
     assert started.command == "ls -la"
@@ -144,10 +150,7 @@ async def test_shell_activity_serializes_to_data_shell_chunk():
     activity = events._shell_activity(
         CommandStartedEvent(command="pytest", pid=9, tool_call_id="tc-2")
     )
-    chunks = [
-        chunk
-        async for chunk in stream.handle_custom_event(activity)
-    ]
+    chunks = [chunk async for chunk in stream.handle_custom_event(activity)]
     (chunk,) = chunks
     assert chunk.type == "data-shell"
     assert chunk.data["phase"] == "started"

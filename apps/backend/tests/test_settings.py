@@ -148,9 +148,7 @@ def test_judge_model_unset_round_trip_and_clear(client):
         "/api/settings", json={"judge_model": "ollama:qwen3"}, headers=AUTH
     )
     assert response.status_code == 200
-    response = test_client.put(
-        "/api/settings", json={"judge_model": ""}, headers=AUTH
-    )
+    response = test_client.put("/api/settings", json={"judge_model": ""}, headers=AUTH)
     assert response.status_code == 200
     assert response.json()["judge_model"] is None
     assert not asyncio.run(load_settings()).get("judge_model"), (
@@ -296,21 +294,20 @@ def test_secrets_set_hidden_deleted_and_file_mode(client):
     assert "sk-super-secret-123" in path.read_text(encoding="utf-8")
 
     # Nothing readable over the API ever contains key material.
-    assert "sk-super-secret-123" not in test_client.get(
-        "/api/settings", headers=AUTH
-    ).text
-    assert "sk-super-secret-123" not in test_client.get(
-        "/api/settings/providers", headers=AUTH
-    ).text
+    assert (
+        "sk-super-secret-123" not in test_client.get("/api/settings", headers=AUTH).text
+    )
+    assert (
+        "sk-super-secret-123"
+        not in test_client.get("/api/settings/providers", headers=AUTH).text
+    )
     # openai and openai-chat share OPENAI_API_KEY — both become configured.
     providers = _providers(test_client)
     assert providers["openai"]["configured"] is True
     assert providers["openai-chat"]["configured"] is True
     assert get_secret("openai_api_key") == "sk-super-secret-123"
 
-    response = test_client.delete(
-        "/api/settings/secrets/openai", headers=AUTH
-    )
+    response = test_client.delete("/api/settings/secrets/openai", headers=AUTH)
     assert response.status_code == 204
     assert get_secret("openai_api_key") is None
     assert "sk-super-secret-123" not in path.read_text(encoding="utf-8")
@@ -353,7 +350,9 @@ def test_settings_validation_errors(client):
         {"default_model": "bogus:model"},  # unknown provider prefix
         {"default_model": "no-colon"},
         {"judge_model": "unknown:x"},
-        {"permission_profile": ""},  # empty id — custom profile ids are free-form but non-empty
+        {
+            "permission_profile": ""
+        },  # empty id — custom profile ids are free-form but non-empty
         {"theme": "neon"},
         {"ollama_base_url": "ftp://nope"},
         {"allowed_paths": ["x"]},  # unknown key — extras are forbidden

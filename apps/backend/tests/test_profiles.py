@@ -251,9 +251,7 @@ def test_tool_profiles_lists_builtins(client):
 
 def test_tool_profile_crud_roundtrip(client):
     test_client, _ = client
-    created = test_client.post(
-        "/api/tool-profiles", json=_profile_body(), headers=AUTH
-    )
+    created = test_client.post("/api/tool-profiles", json=_profile_body(), headers=AUTH)
     assert created.status_code == 201
     profiles = created.json()
     custom = next(p for p in profiles if p["id"] == "reviewer")
@@ -358,8 +356,7 @@ def test_tool_profile_put_delete_unknown_404(client):
         == 404
     )
     assert (
-        test_client.delete("/api/tool-profiles/nope", headers=AUTH).status_code
-        == 404
+        test_client.delete("/api/tool-profiles/nope", headers=AUTH).status_code == 404
     )
 
 
@@ -367,8 +364,7 @@ def test_tool_profiles_require_auth(client):
     test_client, _ = client
     assert test_client.get("/api/tool-profiles").status_code == 401
     assert (
-        test_client.post("/api/tool-profiles", json=_profile_body()).status_code
-        == 401
+        test_client.post("/api/tool-profiles", json=_profile_body()).status_code == 401
     )
 
 
@@ -425,9 +421,7 @@ def test_tool_catalog_lists_enabled_mcp_prefixes(client):
         headers=AUTH,
     )
     entries = test_client.get("/api/tool-catalog", headers=AUTH).json()
-    prefixes = {
-        entry["name"]: entry for entry in entries if entry["group"] == "mcp"
-    }
+    prefixes = {entry["name"]: entry for entry in entries if entry["group"] == "mcp"}
     assert prefixes["testserver_*"]["prefix"] is True
     assert "disabled-server_*" not in prefixes
 
@@ -504,9 +498,7 @@ async def test_tool_allowlist_prefixes_match_mcp_names():
         allowed=frozenset({"read_file"}),
         prefixes=frozenset({"testserver_"}),
     )
-    toolset = _toolset_with(
-        "read_file", "shell", "testserver_search", "other_search"
-    )
+    toolset = _toolset_with("read_file", "shell", "testserver_search", "other_search")
     tools = await allowlist.get_wrapper_toolset(toolset).get_tools(_run_ctx())
     assert sorted(tools) == ["read_file", "testserver_search"]
 
@@ -559,9 +551,7 @@ def test_build_run_kwargs_workspace_read_only_flag(isolated_config):
     set_secret("anthropic_api_key", "sk-ant-test")
     profile = _profile_body(workspace_read_only=True)
     kwargs = build_run_kwargs(
-        _chat_settings(
-            permission_profile="reviewer", tool_profiles=[profile]
-        ),
+        _chat_settings(permission_profile="reviewer", tool_profiles=[profile]),
         isolated_config / "ws",
     )
     from pydantic_ai.capabilities import LocalWorkspace
@@ -611,24 +601,16 @@ def test_build_run_kwargs_smart_approval_mode_adds_reviewer(isolated_config):
     set_secret("anthropic_api_key", "sk-ant-test")
     profile = _profile_body(approval_mode="smart")
     kwargs = build_run_kwargs(
-        _chat_settings(
-            permission_profile="reviewer", tool_profiles=[profile]
-        ),
+        _chat_settings(permission_profile="reviewer", tool_profiles=[profile]),
         isolated_config / "ws",
     )
     reviewer = next(
-        (
-            c
-            for c in kwargs["capabilities"]
-            if isinstance(c, ApprovalReviewer)
-        ),
+        (c for c in kwargs["capabilities"] if isinstance(c, ApprovalReviewer)),
         None,
     )
     assert reviewer is not None
     assert reviewer.model is kwargs["model"]
-    permissions = [
-        c for c in kwargs["capabilities"] if isinstance(c, Permissions)
-    ]
+    permissions = [c for c in kwargs["capabilities"] if isinstance(c, Permissions)]
     assert permissions[0].mode == "auto"
 
 
@@ -651,10 +633,7 @@ async def test_run_toolset_is_filtered_by_profile(isolated_config):
         instructions=kwargs["instructions"],
         usage_limits=kwargs["usage_limits"],
     )
-    names = {
-        tool.name
-        for tool in model.last_model_request_parameters.function_tools
-    }
+    names = {tool.name for tool in model.last_model_request_parameters.function_tools}
     assert {"read_file", "list_files", "grep"} <= names
     assert "shell" not in names
     assert "write_file" not in names
@@ -704,9 +683,7 @@ def test_skills_list_includes_subset(isolated_config):
     )
     skills = _skills_caps(kwargs)
     assert len(skills) == 2
-    assert all(
-        cap.include == frozenset({"commit-helper", "gone"}) for cap in skills
-    )
+    assert all(cap.include == frozenset({"commit-helper", "gone"}) for cap in skills)
 
 
 def test_system_skills_dir_seeded(isolated_config):
@@ -772,11 +749,7 @@ def test_mid_chat_patch_to_custom_profile_changes_next_run(client):
     settings = asyncio.run(settings_for_run())
     kwargs = build_run_kwargs(settings, ws_root)
     allowlist = next(
-        (
-            c
-            for c in kwargs["capabilities"]
-            if isinstance(c, ToolAllowlist)
-        ),
+        (c for c in kwargs["capabilities"] if isinstance(c, ToolAllowlist)),
         None,
     )
     assert allowlist is not None, (
@@ -819,9 +792,7 @@ def test_read_only_builtin_keeps_standalone_filesystem(isolated_config):
     )
     capabilities = kwargs["capabilities"]
     assert not any(isinstance(c, Coder) for c in capabilities)
-    all_leaves = [
-        leaf for cap in capabilities for leaf in _leaf_capabilities(cap)
-    ]
+    all_leaves = [leaf for cap in capabilities for leaf in _leaf_capabilities(cap)]
     file_systems = [c for c in all_leaves if isinstance(c, FileSystem)]
     assert file_systems and all(fs.read_only for fs in file_systems)
     assert not any(isinstance(c, Shell) for c in all_leaves)

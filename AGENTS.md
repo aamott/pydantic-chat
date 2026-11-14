@@ -32,6 +32,7 @@ plans/           # epics + stories (see Planning System)
 - Never log API keys or bearer tokens; never write into workspace folders.
 - Cross-platform from day one (Linux/macOS/Windows): process-group kill, path handling, `taskkill` branches.
 - Run `bun run verify` before completing major tasks. Runs all linting, formatting, and tests
+- Python: `uv run ruff check app tests` AND `uv run ruff format --check app tests` — both are gates; format before committing
 - Use context7 to check libraries
 - Use latest versions of libraries whenever possible
 - Take advantage of pydantic ai's built in features rather than rebuilding or writing unnecessary safety that it already provides

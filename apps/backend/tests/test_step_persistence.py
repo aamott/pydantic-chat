@@ -118,9 +118,7 @@ def test_build_run_kwargs_adds_step_persistence(tmp_path, monkeypatch):
     monkeypatch.setattr("app.agent.factory.resolve_model", lambda spec: TestModel())
 
     kwargs = build_run_kwargs({"model": "test"}, tmp_path)
-    persistence = [
-        c for c in kwargs["capabilities"] if isinstance(c, StepPersistence)
-    ]
+    persistence = [c for c in kwargs["capabilities"] if isinstance(c, StepPersistence)]
     assert len(persistence) == 1, "expected exactly one StepPersistence capability"
     capability = persistence[0]
     assert isinstance(capability.store, SqliteStepStore)
@@ -194,9 +192,7 @@ async def test_settled_tool_boundary_writes_snapshot(client, monkeypatch):
     # At least one snapshot captured the settled boundary itself: a trailing
     # tool-return request answering the shell call.
     boundary = [
-        snapshot
-        for snapshot in snapshots
-        if _tool_returns([snapshot.messages[-1]])
+        snapshot for snapshot in snapshots if _tool_returns([snapshot.messages[-1]])
     ]
     assert boundary, "no snapshot captured the settled tool boundary"
     assert _tool_returns(boundary[-1].messages)[-1].tool_name == "shell"
@@ -255,9 +251,7 @@ async def test_run_error_saves_at_failure_snapshot(client, monkeypatch):
     assert "run_failed" in kinds, "on_run_error never recorded the failure"
     assert "run_completed" not in kinds
 
-    snapshot = await store.latest_snapshot(
-        run_id=run.run_id, include_interrupted=True
-    )
+    snapshot = await store.latest_snapshot(run_id=run.run_id, include_interrupted=True)
     assert snapshot is not None, "on_run_error saved no at-failure snapshot"
     # Completed tool work survives in the resume point.
     assert _tool_returns(snapshot.messages), (

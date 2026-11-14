@@ -185,9 +185,7 @@ class AppVercelAIAdapter(VercelAIAdapter):
         store = self.conversation_store
         assert store is not None  # caller guarantees it
         try:
-            loaded = await store.load(
-                conversation_id, scope=self.conversation_scope
-            )
+            loaded = await store.load(conversation_id, scope=self.conversation_scope)
             if loaded is None:
                 conversation = Conversation(
                     messages=messages, conversation_id=conversation_id
@@ -617,7 +615,9 @@ def _drop_trailing_empty_response(
     list, which the cancelled-run object still holds.
     """
     messages = list(messages)
-    while messages and isinstance(messages[-1], ModelResponse) and not messages[-1].parts:
+    while (
+        messages and isinstance(messages[-1], ModelResponse) and not messages[-1].parts
+    ):
         messages.pop()
     return messages
 

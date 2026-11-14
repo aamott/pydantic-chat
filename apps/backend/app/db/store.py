@@ -95,7 +95,9 @@ class ChatStore(AppTablesMixin, ConversationStore):
         with self._lock:
             self._conn.close()
 
-    async def _run(self, fn: Callable[_P, _T], /, *args: _P.args, **kwargs: _P.kwargs) -> _T:
+    async def _run(
+        self, fn: Callable[_P, _T], /, *args: _P.args, **kwargs: _P.kwargs
+    ) -> _T:
         """Run a blocking sqlite call under the lock on a worker thread."""
 
         def call() -> _T:
@@ -134,7 +136,9 @@ class ChatStore(AppTablesMixin, ConversationStore):
         """Stored records, optionally scoped, newest ``updated_at`` first, at most ``limit``."""
         return await self._run(self._read_records, scope, limit)
 
-    def _read_records(self, scope: str | None, limit: int | None) -> list[ConversationRecord]:
+    def _read_records(
+        self, scope: str | None, limit: int | None
+    ) -> list[ConversationRecord]:
         rows = self._conn.execute(
             "SELECT data_json FROM conversation_records "
             "WHERE (? IS NULL OR scope = ?) "
@@ -214,7 +218,9 @@ class ChatStore(AppTablesMixin, ConversationStore):
             len(new_entries),
         )
 
-    async def delete_record(self, conversation_id: str, *, expected_revision: str) -> None:
+    async def delete_record(
+        self, conversation_id: str, *, expected_revision: str
+    ) -> None:
         """Delete a record, CAS-checked, then GC entries no remaining record reaches.
 
         Entries still referenced by another conversation (e.g. a fork sharing the
@@ -239,7 +245,9 @@ class ChatStore(AppTablesMixin, ConversationStore):
                 (conversation_id,),
             )
             collected = self._gc_entries()
-        logger.debug("Deleted record %s; GC removed %d entries", conversation_id, collected)
+        logger.debug(
+            "Deleted record %s; GC removed %d entries", conversation_id, collected
+        )
 
     def _gc_entries(self) -> int:
         """Delete entries unreachable from any record's ``head_id`` or ``branches`` tips."""
@@ -291,7 +299,9 @@ class ChatStore(AppTablesMixin, ConversationStore):
         """
         return await self._run(self._read_history, head_id, limit)
 
-    def _read_history(self, head_id: str | None, limit: int | None) -> list[ConversationEntry]:
+    def _read_history(
+        self, head_id: str | None, limit: int | None
+    ) -> list[ConversationEntry]:
         if head_id is None:
             return []
         rows = self._conn.execute(

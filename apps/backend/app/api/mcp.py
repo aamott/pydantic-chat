@@ -47,9 +47,7 @@ async def list_mcp_servers(
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-async def add_mcp_server(
-    body: MCPServerSpec, store: StoreDep
-) -> list[MCPServerSpec]:
+async def add_mcp_server(body: MCPServerSpec, store: StoreDep) -> list[MCPServerSpec]:
     """Register a new server; the body is a full ``MCPServerSpec``.
 
     ``name`` is the unique key used by PATCH/DELETE — a duplicate is a 409.

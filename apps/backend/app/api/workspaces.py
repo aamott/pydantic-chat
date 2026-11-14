@@ -14,8 +14,7 @@ async def list_workspaces(store: StoreDep) -> list[WorkspaceOut]:
     """All workspaces (most recently opened first), each with its chat summaries."""
     summaries = await store.list_workspaces()
     return [
-        WorkspaceOut.from_row(summary.workspace, summary.chats)
-        for summary in summaries
+        WorkspaceOut.from_row(summary.workspace, summary.chats) for summary in summaries
     ]
 
 

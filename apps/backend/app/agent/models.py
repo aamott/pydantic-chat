@@ -94,7 +94,9 @@ class CatalogProvider(TypedDict):
     models: list[CatalogModel]
 
 
-def _cm(spec: str, name: str, thinking: list[str], max_context: int | None) -> CatalogModel:
+def _cm(
+    spec: str, name: str, thinking: list[str], max_context: int | None
+) -> CatalogModel:
     """Build a :class:`CatalogModel` row (keeps the catalog below terse and editable)."""
     return CatalogModel(
         id=spec, name=name, thinking_levels=thinking, max_context=max_context
@@ -122,8 +124,15 @@ MODEL_CATALOG: dict[str, CatalogProvider] = {
         "models": [
             _cm("anthropic:claude-opus-4-8", "Claude Opus 4.8", _ALL_THINKING, 200_000),
             _cm("anthropic:claude-sonnet-5", "Claude Sonnet 5", _ALL_THINKING, 200_000),
-            _cm("anthropic:claude-sonnet-4-6", "Claude Sonnet 4.6", _ALL_THINKING, 200_000),
-            _cm("anthropic:claude-haiku-4-5", "Claude Haiku 4.5", _ALL_THINKING, 200_000),
+            _cm(
+                "anthropic:claude-sonnet-4-6",
+                "Claude Sonnet 4.6",
+                _ALL_THINKING,
+                200_000,
+            ),
+            _cm(
+                "anthropic:claude-haiku-4-5", "Claude Haiku 4.5", _ALL_THINKING, 200_000
+            ),
         ],
     },
     "openai": {
@@ -147,16 +156,33 @@ MODEL_CATALOG: dict[str, CatalogProvider] = {
         "models": [
             _cm("google:gemini-4-carbon", "Gemini 4 Carbon", _ALL_THINKING, 1_048_576),
             _cm("google:gemini-4-argon", "Gemini 4 Argon", _ALL_THINKING, 1_048_576),
-            _cm("google:gemini-3.8-flash", "Gemini 3.8 Flash", _ALL_THINKING, 1_048_576),
+            _cm(
+                "google:gemini-3.8-flash", "Gemini 3.8 Flash", _ALL_THINKING, 1_048_576
+            ),
             _cm("google:gemini-3.1-pro-preview", "Gemini 3.1 Pro", _NO_OFF, 1_048_576),
         ],
     },
     "google-cloud": {
         "label": "Google Cloud (Vertex AI)",
         "models": [
-            _cm("google-cloud:gemini-4-carbon", "Gemini 4 Carbon", _ALL_THINKING, 1_048_576),
-            _cm("google-cloud:gemini-4-argon", "Gemini 4 Argon", _ALL_THINKING, 1_048_576),
-            _cm("google-cloud:gemini-3.8-flash", "Gemini 3.8 Flash", _ALL_THINKING, 1_048_576),
+            _cm(
+                "google-cloud:gemini-4-carbon",
+                "Gemini 4 Carbon",
+                _ALL_THINKING,
+                1_048_576,
+            ),
+            _cm(
+                "google-cloud:gemini-4-argon",
+                "Gemini 4 Argon",
+                _ALL_THINKING,
+                1_048_576,
+            ),
+            _cm(
+                "google-cloud:gemini-3.8-flash",
+                "Gemini 3.8 Flash",
+                _ALL_THINKING,
+                1_048_576,
+            ),
             _cm(
                 "google-cloud:gemini-3.1-pro-preview",
                 "Gemini 3.1 Pro",
@@ -198,7 +224,9 @@ class UnknownProviderError(ValueError):
     def __init__(self, provider: str) -> None:
         self.provider = provider
         known = ", ".join(KNOWN_PROVIDERS)
-        super().__init__(f"Unknown model provider {provider!r}; expected one of: {known}")
+        super().__init__(
+            f"Unknown model provider {provider!r}; expected one of: {known}"
+        )
 
 
 def _require_secret(name: str, provider: str, hint: str) -> str:
@@ -443,9 +471,7 @@ async def google_model_catalog() -> list[CatalogModel]:
             response.raise_for_status()
         payload: Any = response.json()
     except (httpx.HTTPError, ValueError):
-        logger.info(
-            "Gemini model list unreachable; falling back to the static catalog"
-        )
+        logger.info("Gemini model list unreachable; falling back to the static catalog")
         return list(static)
     models = payload.get("models") if isinstance(payload, dict) else None
     if not isinstance(models, list):
@@ -548,9 +574,7 @@ async def openai_model_catalog() -> list[CatalogModel]:
             response.raise_for_status()
         payload: Any = response.json()
     except (httpx.HTTPError, ValueError):
-        logger.info(
-            "OpenAI model list unreachable; falling back to the static catalog"
-        )
+        logger.info("OpenAI model list unreachable; falling back to the static catalog")
         return list(static)
     rows = payload.get("data") if isinstance(payload, dict) else None
     if not isinstance(rows, list):
@@ -604,8 +628,7 @@ def _anthropic_thinking_levels(entry: dict[str, Any]) -> list[str]:
             caps.get("effort"),
         )
         supported = any(
-            isinstance(cap, dict) and cap.get("supported") is True
-            for cap in reasoning
+            isinstance(cap, dict) and cap.get("supported") is True for cap in reasoning
         )
         if not supported:
             return ["off"]

@@ -106,9 +106,7 @@ def test_chat_streams_sse_and_persists(client):
     assert "hi there" in text
 
     # Server-side history: the conversation store saved user + assistant messages.
-    messages = test_client.get(
-        f"/api/chats/{chat['id']}/messages", headers=AUTH
-    ).json()
+    messages = test_client.get(f"/api/chats/{chat['id']}/messages", headers=AUTH).json()
     assert [m["role"] for m in messages] == ["user", "assistant"]
     assert messages[0]["parts"][0]["text"] == "hello agent"
 
@@ -180,9 +178,7 @@ def test_stream_replay_after_completed_run(client):
 
     # The replayed message id is the one the transcript dump assigns, so a
     # client replaces its seeded message instead of appending a duplicate.
-    stored = test_client.get(
-        f"/api/chats/{chat['id']}/messages", headers=AUTH
-    ).json()
+    stored = test_client.get(f"/api/chats/{chat['id']}/messages", headers=AUTH).json()
     assistant_id = next(m["id"] for m in stored if m["role"] == "assistant")
     assert events[0]["messageId"] == assistant_id
 
@@ -233,7 +229,9 @@ def test_chat_provider_errors_map(client, monkeypatch):
     chat = _create_chat(test_client, workspace["id"])
 
     def unconfigured(spec):
-        raise ProviderNotConfigured("anthropic", "'anthropic' is not configured: key missing")
+        raise ProviderNotConfigured(
+            "anthropic", "'anthropic' is not configured: key missing"
+        )
 
     monkeypatch.setattr("app.agent.factory.resolve_model", unconfigured)
     response = test_client.post(
@@ -259,9 +257,7 @@ def test_stop_without_run_404(client):
     assert response.status_code == 404
 
 
-def test_mid_chat_profile_switch_changes_next_run_capabilities(
-    client, monkeypatch
-):
+def test_mid_chat_profile_switch_changes_next_run_capabilities(client, monkeypatch):
     """PATCH ``permission_profile`` mid-chat; the next run builds the new set.
 
     The first run goes out under the default ``manual`` profile; a PATCH to
@@ -295,9 +291,7 @@ def test_mid_chat_profile_switch_changes_next_run_capabilities(
 
     monkeypatch.setattr(chat_module, "build_run_kwargs", spy)
 
-    first = test_client.post(
-        "/api/chat", json=_chat_payload(chat["id"]), headers=AUTH
-    )
+    first = test_client.post("/api/chat", json=_chat_payload(chat["id"]), headers=AUTH)
     assert first.status_code == 200
     assert not any(isinstance(c, ApprovalReviewer) for c in built[-1])
     permissions = [c for c in built[-1] if isinstance(c, Permissions)]
@@ -317,9 +311,7 @@ def test_mid_chat_profile_switch_changes_next_run_capabilities(
         "/api/chat", json=_chat_payload(chat["id"], "again"), headers=AUTH
     )
     assert second.status_code == 200
-    reviewer = next(
-        (c for c in built[-1] if isinstance(c, ApprovalReviewer)), None
-    )
+    reviewer = next((c for c in built[-1] if isinstance(c, ApprovalReviewer)), None)
     assert reviewer is not None, (
         "smart profile still built manual capabilities on the next run"
     )
@@ -453,9 +445,7 @@ def test_stop_cancels_run_and_saves_partial(client, monkeypatch):
             assert time.monotonic() < deadline, "run never registered a token"
             time.sleep(0.01)
 
-        response = test_client.post(
-            f"/api/chats/{chat['id']}/stop", headers=AUTH
-        )
+        response = test_client.post(f"/api/chats/{chat['id']}/stop", headers=AUTH)
         assert response.status_code == 200
         assert response.json()["status"] == "cancel_requested"
     finally:
@@ -474,9 +464,7 @@ def test_stop_cancels_run_and_saves_partial(client, monkeypatch):
     )
 
     # on_cancel persisted the partial turn: at least the user prompt is stored.
-    messages = test_client.get(
-        f"/api/chats/{chat['id']}/messages", headers=AUTH
-    ).json()
+    messages = test_client.get(f"/api/chats/{chat['id']}/messages", headers=AUTH).json()
     assert messages, "partial history was not saved on cancel"
     assert messages[0]["role"] == "user"
     assert messages[0]["parts"][0]["text"] == "hello agent"
@@ -529,9 +517,7 @@ async def test_failed_run_persists_failed_turn(client, monkeypatch):
     assert getattr(entries[1].message, "state", None) == "interrupted"
 
     # The transcript endpoint shows the failed turn too, so it survives reload.
-    messages = test_client.get(
-        f"/api/chats/{chat['id']}/messages", headers=AUTH
-    ).json()
+    messages = test_client.get(f"/api/chats/{chat['id']}/messages", headers=AUTH).json()
     assert messages[0]["role"] == "user"
     assert messages[0]["parts"][0]["text"] == "hello agent"
 
@@ -551,9 +537,7 @@ async def test_retry_after_failed_run_does_not_duplicate(client, monkeypatch):
     monkeypatch.setattr(
         "app.agent.factory.resolve_model", lambda spec: _failing_model()
     )
-    failed = test_client.post(
-        "/api/chat", json=_chat_payload(chat["id"]), headers=AUTH
-    )
+    failed = test_client.post("/api/chat", json=_chat_payload(chat["id"]), headers=AUTH)
     assert failed.status_code == 200
 
     # The retry: same chat, same user message id — a working model this time.
@@ -569,9 +553,7 @@ async def test_retry_after_failed_run_does_not_duplicate(client, monkeypatch):
     assert "finish" in types
 
     # Exactly one user request + the new response; the failed tail branched off.
-    messages = test_client.get(
-        f"/api/chats/{chat['id']}/messages", headers=AUTH
-    ).json()
+    messages = test_client.get(f"/api/chats/{chat['id']}/messages", headers=AUTH).json()
     assert [m["role"] for m in messages] == ["user", "assistant"]
     assert messages[0]["parts"][0]["text"] == "hello agent"
 
@@ -581,7 +563,9 @@ async def test_retry_after_failed_run_does_not_duplicate(client, monkeypatch):
     user_prompts = [
         entry
         for entry in entries
-        if any(getattr(p, "part_kind", None) == "user-prompt" for p in entry.message.parts)
+        if any(
+            getattr(p, "part_kind", None) == "user-prompt" for p in entry.message.parts
+        )
     ]
     assert len(user_prompts) == 1, "retry duplicated the user prompt"
     assert record.branches, "the failed turn should be kept as a stored branch"
@@ -674,9 +658,7 @@ async def test_stop_before_first_token_saves_no_empty_response(client, monkeypat
             assert time.monotonic() < deadline, "run never registered a token"
             await asyncio.sleep(0.01)
         assert reached.wait(timeout=10), "model request never started"
-        response = test_client.post(
-            f"/api/chats/{chat['id']}/stop", headers=AUTH
-        )
+        response = test_client.post(f"/api/chats/{chat['id']}/stop", headers=AUTH)
         assert response.status_code == 200
     finally:
         thread.join(timeout=15)
@@ -701,9 +683,7 @@ async def test_stop_before_first_token_saves_no_empty_response(client, monkeypat
     )
 
     # The transcript shows no empty assistant message either.
-    messages = test_client.get(
-        f"/api/chats/{chat['id']}/messages", headers=AUTH
-    ).json()
+    messages = test_client.get(f"/api/chats/{chat['id']}/messages", headers=AUTH).json()
     assert [m["role"] for m in messages] == ["user"]
 
 
@@ -750,9 +730,7 @@ async def test_failed_run_before_first_token_saves_no_empty_response(
         for part in last.parts
     )
 
-    messages = test_client.get(
-        f"/api/chats/{chat['id']}/messages", headers=AUTH
-    ).json()
+    messages = test_client.get(f"/api/chats/{chat['id']}/messages", headers=AUTH).json()
     assert [m["role"] for m in messages] == ["user"]
 
 
@@ -767,9 +745,7 @@ def _approval_shell_model(command: str = "echo approved-cmd") -> FunctionModel:
 
     async def stream_fn(messages, info):
         yield {
-            0: DeltaToolCall(
-                name="shell", json_args=json.dumps({"command": command})
-            )
+            0: DeltaToolCall(name="shell", json_args=json.dumps({"command": command}))
         }
 
     return FunctionModel(stream_function=stream_fn)
@@ -835,9 +811,7 @@ async def test_approval_resubmit_executes_deferred_call(client, monkeypatch):
     monkeypatch.setattr(
         "app.agent.factory.resolve_model", lambda spec: _approval_shell_model()
     )
-    first = test_client.post(
-        "/api/chat", json=_chat_payload(chat["id"]), headers=AUTH
-    )
+    first = test_client.post("/api/chat", json=_chat_payload(chat["id"]), headers=AUTH)
     assert first.status_code == 200
     approvals = [
         e for e in _sse_events(first.text) if e["type"] == "tool-approval-request"

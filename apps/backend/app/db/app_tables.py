@@ -102,6 +102,7 @@ def _decode_mcp_overrides(raw: object) -> dict[str, bool] | None:
         if isinstance(enabled, bool)
     }
 
+
 CHAT_EDITABLE_FIELDS: frozenset[str] = frozenset(
     {"title", "model", "thinking", "permission_profile"}
 )
@@ -139,7 +140,9 @@ class AppTablesMixin:
         """
         return await self._run(self._get_or_create_workspace, path, display_name)
 
-    def _get_or_create_workspace(self, path: str | Path, display_name: str | None) -> Workspace:
+    def _get_or_create_workspace(
+        self, path: str | Path, display_name: str | None
+    ) -> Workspace:
         normalized = _normalize_path(path)
         now = _now_ms()
         with self._conn:
@@ -345,9 +348,7 @@ class AppTablesMixin:
         return await self._run(self._get_chat, chat_id)
 
     def _get_chat(self, chat_id: str) -> ChatSummary | None:
-        row = self._conn.execute(
-            f"{CHAT_SELECT} WHERE id = ?", (chat_id,)
-        ).fetchone()
+        row = self._conn.execute(f"{CHAT_SELECT} WHERE id = ?", (chat_id,)).fetchone()
         return None if row is None else self._chat_from_row(row)
 
     async def list_chats(self, workspace_id: str) -> list[ChatSummary]:

@@ -159,7 +159,9 @@ def _coder_with_lists(lists: PermissionLists) -> Coder:
                 ]
                 return replace(capability, allowed_commands=allowed, denied_commands=[])
             return replace(
-                capability, allowed_commands=[], denied_commands=list(lists.denied_commands)
+                capability,
+                allowed_commands=[],
+                denied_commands=list(lists.denied_commands),
             )
         if isinstance(capability, FileSystem):
             return replace(
@@ -222,7 +224,10 @@ def _profile_capabilities(
         )
         return _manual_capabilities(lists)
 
-    return [_coder_with_lists(lists), Permissions(_APPROVAL_MODES[profile.approval_mode])]
+    return [
+        _coder_with_lists(lists),
+        Permissions(_APPROVAL_MODES[profile.approval_mode]),
+    ]
 
 
 def _skills_capabilities(profile: ToolProfile) -> list[AbstractCapability]:
@@ -489,9 +494,7 @@ def build_run_kwargs(
         "usage_limits": UsageLimits(request_limit=REQUEST_LIMIT),
         # Chat's thinking level -> the unified ModelSettings.thinking field;
         # None when unset (the model keeps its default behavior).
-        "model_settings": thinking_model_settings(
-            _setting(chat_settings, "thinking")
-        ),
+        "model_settings": thinking_model_settings(_setting(chat_settings, "thinking")),
     }
 
 
@@ -522,6 +525,4 @@ def _step_persistence_capability() -> StepPersistence:
         StepPersistence,
     )
 
-    return StepPersistence(
-        store=SqliteStepStore(database=data_dir() / "steps.db")
-    )
+    return StepPersistence(store=SqliteStepStore(database=data_dir() / "steps.db"))

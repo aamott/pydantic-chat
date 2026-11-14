@@ -99,7 +99,9 @@ def parse_mcp_servers(raw: Any) -> list[MCPServerSpec]:
         try:
             raw = json.loads(raw)
         except json.JSONDecodeError:
-            logger.warning("Settings key %r is not valid JSON; ignoring", MCP_SERVERS_KEY)
+            logger.warning(
+                "Settings key %r is not valid JSON; ignoring", MCP_SERVERS_KEY
+            )
             return []
     if not isinstance(raw, list):
         return []
@@ -134,9 +136,7 @@ def parse_mcp_mask(raw: Any) -> dict[str, bool] | None:
     if not isinstance(raw, Mapping):
         return None
     return {
-        str(name): enabled
-        for name, enabled in raw.items()
-        if isinstance(enabled, bool)
+        str(name): enabled for name, enabled in raw.items() if isinstance(enabled, bool)
     }
 
 
@@ -164,9 +164,7 @@ def apply_mcp_mask(
     known = {spec.name for spec in specs}
     stale = sorted(set(mask) - known)
     if stale:
-        logger.warning(
-            "Workspace MCP mask names unknown servers; ignoring: %s", stale
-        )
+        logger.warning("Workspace MCP mask names unknown servers; ignoring: %s", stale)
     return [
         spec.model_copy(update={"enabled": mask[spec.name]})
         if spec.name in mask
@@ -267,9 +265,7 @@ def build_mcp_capabilities(
                     id=spec.name,
                 )
             else:
-                toolset = MCPToolset(
-                    spec.url or "", id=spec.name, headers=spec.headers
-                )
+                toolset = MCPToolset(spec.url or "", id=spec.name, headers=spec.headers)
         except Exception as error:  # noqa: BLE001 — one bad spec must not break the run
             logger.warning(
                 "Skipping MCP server %r — could not build its transport: %s",
@@ -281,8 +277,6 @@ def build_mcp_capabilities(
         if gate:
             wrapped = ApprovalRequiredToolset(wrapped)
         capabilities.append(
-            ToolsetCapability(
-                ResilientToolset(wrapped=wrapped, server_name=spec.name)
-            )
+            ToolsetCapability(ResilientToolset(wrapped=wrapped, server_name=spec.name))
         )
     return capabilities

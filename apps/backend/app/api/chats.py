@@ -50,9 +50,7 @@ async def create_chat(
 
 
 @router.patch("/chats/{chat_id}")
-async def patch_chat(
-    chat_id: str, body: ChatPatch, store: StoreDep
-) -> ChatSummaryOut:
+async def patch_chat(chat_id: str, body: ChatPatch, store: StoreDep) -> ChatSummaryOut:
     """Merge the provided fields into the chat; explicit ``null`` clears an override.
 
     Validation (400s rather than silent writes):
@@ -124,9 +122,7 @@ async def delete_chat(chat_id: str, store: StoreDep) -> None:
 
 
 @router.get("/chats/{chat_id}/messages")
-async def get_chat_messages(
-    chat_id: str, store: StoreDep
-) -> list[dict[str, Any]]:
+async def get_chat_messages(chat_id: str, store: StoreDep) -> list[dict[str, Any]]:
     """The chat's transcript as Vercel AI ``UIMessage`` dicts (``[]`` before any run).
 
     Loads the stored conversation (chat id == conversation id, workspace id ==
@@ -141,9 +137,7 @@ async def get_chat_messages(
     conversation = await store.load(chat_id, scope=chat.workspace_id)
     if conversation is None:
         return []
-    ui_messages = VercelAIAdapter.dump_messages(
-        conversation.messages, sdk_version=7
-    )
+    ui_messages = VercelAIAdapter.dump_messages(conversation.messages, sdk_version=7)
     return [
         message.model_dump(mode="json", by_alias=True, exclude_none=True)
         for message in ui_messages
@@ -174,9 +168,10 @@ async def get_chat_versions(chat_id: str, store: StoreDep) -> ChatVersionsOut:
     for tip in record.branches:
         branch = await store.read_history(tip)
         diverging = _first_diverging_entry(head, branch)
-        if diverging is not None and (
-            version := _prompt_version(diverging, tip)
-        ) is not None:
+        if (
+            diverging is not None
+            and (version := _prompt_version(diverging, tip)) is not None
+        ):
             versions.append(version)
     return ChatVersionsOut(versions=versions)
 
@@ -196,9 +191,7 @@ def _first_diverging_entry(
     return None
 
 
-def _prompt_version(
-    entry: ConversationEntry, tip: str
-) -> PromptVersionOut | None:
+def _prompt_version(entry: ConversationEntry, tip: str) -> PromptVersionOut | None:
     """A version row when ``entry`` is a ui-stamped user-prompt request."""
     message = entry.message
     if not isinstance(message, ModelRequest):

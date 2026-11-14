@@ -174,9 +174,7 @@ async def test_read_history_ordered_with_limit(store):
 
 async def test_save_load_and_stale_save_conflict(store):
     request, response = _request("ping"), _response("pong")
-    conversation = Conversation(
-        conversation_id="chat-1", messages=[request, response]
-    )
+    conversation = Conversation(conversation_id="chat-1", messages=[request, response])
     saved = await store.save(conversation, scope="ws-1")
     assert len(saved) == 2
 
@@ -230,7 +228,11 @@ async def test_record_and_history_survive_reopen(tmp_path):
     first = ChatStore(path)
     entries = _chain(2)
     deferred = DeferredToolRequests(
-        approvals=[ToolCallPart(tool_name="shell", args={"cmd": "rm -rf /"}, tool_call_id="tc1")]
+        approvals=[
+            ToolCallPart(
+                tool_name="shell", args={"cmd": "rm -rf /"}, tool_call_id="tc1"
+            )
+        ]
     )
     record = ConversationRecord(
         conversation_id="c1",

@@ -404,9 +404,7 @@ async def test_google_model_catalog_thinking_heuristic(tmp_path, monkeypatch):
     ]
 
 
-async def test_google_model_catalog_offline_falls_back_to_static(
-    tmp_path, monkeypatch
-):
+async def test_google_model_catalog_offline_falls_back_to_static(tmp_path, monkeypatch):
     """Transport errors, non-200s, and malformed payloads all yield the static list."""
     _gemini_env(tmp_path, monkeypatch)
     static = MODEL_CATALOG["google"]["models"]
@@ -421,7 +419,9 @@ async def test_google_model_catalog_offline_falls_back_to_static(
     _google_client(
         monkeypatch,
         httpx.HTTPStatusError(
-            "403", request=httpx.Request("GET", "https://x"), response=httpx.Response(403)
+            "403",
+            request=httpx.Request("GET", "https://x"),
+            response=httpx.Response(403),
         ),
     )
     assert await google_model_catalog() == list(static)
@@ -539,8 +539,18 @@ async def test_openai_model_catalog_filters_and_maps(tmp_path, monkeypatch):
         {
             "object": "list",
             "data": [
-                {"id": "gpt-7.0", "object": "model", "created": 1, "owned_by": "openai"},
-                {"id": "o5-mini", "object": "model", "created": 1, "owned_by": "openai"},
+                {
+                    "id": "gpt-7.0",
+                    "object": "model",
+                    "created": 1,
+                    "owned_by": "openai",
+                },
+                {
+                    "id": "o5-mini",
+                    "object": "model",
+                    "created": 1,
+                    "owned_by": "openai",
+                },
                 {
                     "id": "chatgpt-6-latest",
                     "object": "model",
@@ -548,8 +558,18 @@ async def test_openai_model_catalog_filters_and_maps(tmp_path, monkeypatch):
                     "owned_by": "openai",
                 },
                 # Non-chat families the endpoint also lists: all dropped.
-                {"id": "dall-e-3", "object": "model", "created": 1, "owned_by": "openai"},
-                {"id": "whisper-1", "object": "model", "created": 1, "owned_by": "openai"},
+                {
+                    "id": "dall-e-3",
+                    "object": "model",
+                    "created": 1,
+                    "owned_by": "openai",
+                },
+                {
+                    "id": "whisper-1",
+                    "object": "model",
+                    "created": 1,
+                    "owned_by": "openai",
+                },
                 {
                     "id": "text-embedding-3-large",
                     "object": "model",
@@ -564,7 +584,12 @@ async def test_openai_model_catalog_filters_and_maps(tmp_path, monkeypatch):
                     "owned_by": "openai",
                 },
                 # Legacy completions-only models.
-                {"id": "davinci-002", "object": "model", "created": 1, "owned_by": "openai"},
+                {
+                    "id": "davinci-002",
+                    "object": "model",
+                    "created": 1,
+                    "owned_by": "openai",
+                },
             ],
         },
     )
@@ -599,7 +624,12 @@ async def test_openai_model_catalog_static_merge_and_dedup(tmp_path, monkeypatch
                 # Matches the static `openai:gpt-5.5` id: the API carries no
                 # display fields, so name/thinking/max_context all come from
                 # the curated static row.
-                {"id": "gpt-5.5", "object": "model", "created": 1, "owned_by": "openai"},
+                {
+                    "id": "gpt-5.5",
+                    "object": "model",
+                    "created": 1,
+                    "owned_by": "openai",
+                },
             ],
         },
     )
@@ -616,9 +646,7 @@ async def test_openai_model_catalog_static_merge_and_dedup(tmp_path, monkeypatch
     )
 
 
-async def test_openai_model_catalog_offline_falls_back_to_static(
-    tmp_path, monkeypatch
-):
+async def test_openai_model_catalog_offline_falls_back_to_static(tmp_path, monkeypatch):
     """Transport errors, non-200s, and malformed payloads all yield the static list."""
     _openai_env(tmp_path, monkeypatch)
     static = MODEL_CATALOG["openai"]["models"]
@@ -633,7 +661,9 @@ async def test_openai_model_catalog_offline_falls_back_to_static(
     _openai_client(
         monkeypatch,
         httpx.HTTPStatusError(
-            "401", request=httpx.Request("GET", "https://x"), response=httpx.Response(401)
+            "401",
+            request=httpx.Request("GET", "https://x"),
+            response=httpx.Response(401),
         ),
     )
     assert await openai_model_catalog() == list(static)
@@ -801,9 +831,7 @@ async def test_anthropic_model_catalog_filters_and_maps(tmp_path, monkeypatch):
     assert len({m["id"] for m in models}) == len(models)
 
 
-async def test_anthropic_model_catalog_static_merge_and_dedup(
-    tmp_path, monkeypatch
-):
+async def test_anthropic_model_catalog_static_merge_and_dedup(tmp_path, monkeypatch):
     """A static entry the API also returns keeps its hand-curated thinking levels."""
     _anthropic_env(tmp_path, monkeypatch)
     _anthropic_client(
@@ -893,7 +921,9 @@ async def test_anthropic_model_catalog_offline_falls_back_to_static(
     _anthropic_client(
         monkeypatch,
         httpx.HTTPStatusError(
-            "403", request=httpx.Request("GET", "https://x"), response=httpx.Response(403)
+            "403",
+            request=httpx.Request("GET", "https://x"),
+            response=httpx.Response(403),
         ),
     )
     assert await anthropic_model_catalog() == list(static)
@@ -979,7 +1009,10 @@ def test_chat_patch_model_prefix_validation(client):
     assert _patch_chat(test_client, chat["id"], {"model": "nocolon"}).status_code == 400
     assert _patch_chat(test_client, chat["id"], {"model": "openai:"}).status_code == 400
     # Known prefixes pass even when the exact model isn't catalog-listed.
-    assert _patch_chat(test_client, chat["id"], {"model": "ollama:anything"}).status_code == 200
+    assert (
+        _patch_chat(test_client, chat["id"], {"model": "ollama:anything"}).status_code
+        == 200
+    )
     # null clears the override.
     cleared = _patch_chat(test_client, chat["id"], {"model": None})
     assert cleared.status_code == 200
@@ -991,9 +1024,13 @@ def test_chat_patch_thinking_validation(client):
     workspace = _create_workspace(test_client, tmp_path)
 
     # Catalog-known model: thinking must be one of its advertised levels.
-    chat = _create_chat(test_client, workspace["id"], {"model": "anthropic:claude-sonnet-4-6"})
+    chat = _create_chat(
+        test_client, workspace["id"], {"model": "anthropic:claude-sonnet-4-6"}
+    )
     assert _patch_chat(test_client, chat["id"], {"thinking": "high"}).status_code == 200
-    assert _patch_chat(test_client, chat["id"], {"thinking": "bogus"}).status_code == 400
+    assert (
+        _patch_chat(test_client, chat["id"], {"thinking": "bogus"}).status_code == 400
+    )
     assert _patch_chat(test_client, chat["id"], {"thinking": None}).status_code == 200
 
     # A model that can't disable reasoning rejects 'off' too.
@@ -1003,7 +1040,10 @@ def test_chat_patch_thinking_validation(client):
 
     # Non-catalog specs (Ollama, custom ids) take free-form thinking values.
     free = _create_chat(test_client, workspace["id"], {"model": "ollama:custom"})
-    assert _patch_chat(test_client, free["id"], {"thinking": "whatever"}).status_code == 200
+    assert (
+        _patch_chat(test_client, free["id"], {"thinking": "whatever"}).status_code
+        == 200
+    )
 
     # Setting model and thinking together validates against the new model.
     both = _patch_chat(
@@ -1106,12 +1146,8 @@ def test_build_run_kwargs_thinking_levels(tmp_path, monkeypatch, spec):
     """Every provider gets the unified ModelSettings.thinking field."""
     from pydantic_ai.models.test import TestModel
 
-    monkeypatch.setattr(
-        "app.agent.factory.resolve_model", lambda s: TestModel()
-    )
-    kwargs = build_run_kwargs(
-        {"model": spec, "thinking": "high"}, tmp_path / "ws"
-    )
+    monkeypatch.setattr("app.agent.factory.resolve_model", lambda s: TestModel())
+    kwargs = build_run_kwargs({"model": spec, "thinking": "high"}, tmp_path / "ws")
     assert kwargs["model_settings"] == {"thinking": "high"}
 
     kwargs = build_run_kwargs({"model": spec, "thinking": "off"}, tmp_path / "ws")

@@ -143,9 +143,7 @@ def test_spec_rejects_unknown_transport():
 
 def test_spec_rejects_unknown_keys():
     with pytest.raises(ValidationError):
-        MCPServerSpec.model_validate(
-            {**_stdio_server(), "bogus": True}
-        )
+        MCPServerSpec.model_validate({**_stdio_server(), "bogus": True})
 
 
 def test_spec_rejects_name_with_slash():
@@ -169,9 +167,7 @@ def test_mcp_servers_empty_by_default(client):
 def test_mcp_server_crud_roundtrip(client):
     test_client, _ = client
 
-    created = test_client.post(
-        "/api/mcp-servers", json=_stdio_server(), headers=AUTH
-    )
+    created = test_client.post("/api/mcp-servers", json=_stdio_server(), headers=AUTH)
     assert created.status_code == 201
     servers = created.json()
     assert len(servers) == 1
@@ -217,7 +213,9 @@ def test_mcp_server_post_validation_errors(client):
 def test_mcp_server_duplicate_name_conflict(client):
     test_client, _ = client
     assert (
-        test_client.post("/api/mcp-servers", json=_stdio_server(), headers=AUTH).status_code
+        test_client.post(
+            "/api/mcp-servers", json=_stdio_server(), headers=AUTH
+        ).status_code
         == 201
     )
     duplicate = test_client.post(
@@ -321,8 +319,7 @@ def test_build_mcp_capabilities_gate_wraps_approval():
     specs = [MCPServerSpec.model_validate(_stdio_server())]
     gated = build_mcp_capabilities(specs, gate=True)
     assert any(
-        isinstance(layer, ApprovalRequiredToolset)
-        for layer in _walk(gated[0].toolset)
+        isinstance(layer, ApprovalRequiredToolset) for layer in _walk(gated[0].toolset)
     )
     ungated = build_mcp_capabilities(specs, gate=False)
     assert not any(
@@ -342,6 +339,7 @@ def test_build_mcp_capabilities_prefixes_tool_names():
 
 def test_build_mcp_capabilities_construction_failure_skips(monkeypatch):
     """A spec whose toolset can't be built warns and is skipped, not raised."""
+
     # build_mcp_capabilities imports MCPToolset lazily inside the function,
     # so the name resolves on pydantic_ai.mcp at call time.
     def boom(*args, **kwargs):
@@ -578,9 +576,7 @@ async def test_profile_prefixes_still_gate_masked_in_servers(isolated_config):
     }
     kwargs = build_run_kwargs(settings, isolated_config / "ws")
     assert len(_mcp_capabilities(kwargs)) == 2
-    allowlist = next(
-        c for c in kwargs["capabilities"] if isinstance(c, ToolAllowlist)
-    )
+    allowlist = next(c for c in kwargs["capabilities"] if isinstance(c, ToolAllowlist))
     assert allowlist.prefixes == frozenset({"fs-tools_"})
     filtered = allowlist.get_wrapper_toolset(
         _toolset_with("read_file", "fs-tools_read", "web-tools_search")
@@ -603,9 +599,7 @@ async def test_run_settings_workspace_mcp_mask(tmp_path, monkeypatch):
         settings = await _run_settings(store, chat, workspace)
         assert settings.get("mcp_overrides") is None
 
-        await store.set_workspace_mcp_overrides(
-            workspace.id, {"fs-tools": False}
-        )
+        await store.set_workspace_mcp_overrides(workspace.id, {"fs-tools": False})
         workspace = await store.get_workspace(workspace.id)
         settings = await _run_settings(store, chat, workspace)
         assert settings["mcp_overrides"] == {"fs-tools": False}
@@ -628,11 +622,15 @@ def _create_workspace(test_client, path) -> dict:
 
 def _register_servers(test_client) -> None:
     assert (
-        test_client.post("/api/mcp-servers", json=_stdio_server(), headers=AUTH).status_code
+        test_client.post(
+            "/api/mcp-servers", json=_stdio_server(), headers=AUTH
+        ).status_code
         == 201
     )
     assert (
-        test_client.post("/api/mcp-servers", json=_http_server(), headers=AUTH).status_code
+        test_client.post(
+            "/api/mcp-servers", json=_http_server(), headers=AUTH
+        ).status_code
         == 201
     )
 
@@ -653,9 +651,10 @@ def test_mcp_servers_list_reflects_workspace_mask(client):
         f"/api/mcp-servers?workspace_id={workspace['id']}", headers=AUTH
     )
     assert masked.status_code == 200
-    assert _enabled_flags(
-        [MCPServerSpec.model_validate(s) for s in masked.json()]
-    ) == {"fs-tools": False, "web-tools": True}
+    assert _enabled_flags([MCPServerSpec.model_validate(s) for s in masked.json()]) == {
+        "fs-tools": False,
+        "web-tools": True,
+    }
 
     # The global registry itself is untouched — the mask is read-time only.
     global_list = test_client.get("/api/mcp-servers", headers=AUTH).json()
@@ -693,8 +692,6 @@ def test_tool_catalog_reflects_workspace_mask(client):
     assert {"fs-tools_*", "web-tools_*"} <= unscoped_prefixes
 
     assert (
-        test_client.get(
-            "/api/tool-catalog?workspace_id=nope", headers=AUTH
-        ).status_code
+        test_client.get("/api/tool-catalog?workspace_id=nope", headers=AUTH).status_code
         == 404
     )

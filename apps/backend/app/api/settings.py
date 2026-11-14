@@ -133,9 +133,7 @@ async def put_settings(body: SettingsPatch, store: StoreDep) -> SettingsOut:
 
 
 @router.put("/{key}")
-async def put_setting(
-    key: str, body: SettingValueIn, store: StoreDep
-) -> SettingsOut:
+async def put_setting(key: str, body: SettingValueIn, store: StoreDep) -> SettingsOut:
     """Single-key convenience form of ``PUT /api/settings``."""
     if key not in SETTING_KEYS:
         known = ", ".join(SETTING_KEYS)
@@ -219,7 +217,8 @@ async def _settings_out(store: ChatStore) -> SettingsOut:
         # Any non-empty id echoes back verbatim — it may name a custom
         # profile; unknown ids resolve to 'manual' when a run builds.
         permission_profile=(
-            profile if isinstance(profile, str) and profile
+            profile
+            if isinstance(profile, str) and profile
             else DEFAULT_PERMISSION_PROFILE
         ),
         allowed_commands=_list_value(raw, "allowed_commands"),
@@ -257,7 +256,9 @@ async def _apply_setting(store: ChatStore, key: str, value: Any) -> None:
         # resolve_model reads this via get_secret, so it lives in secrets.json.
         set_secret(
             "ollama_base_url",
-            None if value is None else _validate_base_url(key, _require_str(key, value)),
+            None
+            if value is None
+            else _validate_base_url(key, _require_str(key, value)),
         )
         return
     if value is None:
@@ -356,6 +357,4 @@ def _validate_base_url(key: str, value: str) -> str:
 
 def _bad_value(key: str, why: str) -> HTTPException:
     """A 400 describing why a settings value was rejected."""
-    return HTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST, detail=f"{key} {why}"
-    )
+    return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{key} {why}")

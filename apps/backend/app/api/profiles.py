@@ -99,9 +99,7 @@ async def list_tool_profiles(store: StoreDep) -> list[ToolProfile]:
 
 
 @router.post("/tool-profiles", status_code=status.HTTP_201_CREATED)
-async def create_tool_profile(
-    body: ToolProfile, store: StoreDep
-) -> list[ToolProfile]:
+async def create_tool_profile(body: ToolProfile, store: StoreDep) -> list[ToolProfile]:
     """Register a custom profile; ``id`` is the unique key used by PUT/DELETE.
 
     A duplicate id is a 409 — including collisions with a builtin id (edit a
@@ -132,9 +130,7 @@ async def put_tool_profile(
         )
     profiles = await load_tool_profiles(store)
     index = _find(profiles, profile_id)
-    profiles[index] = body.model_copy(
-        update={"id": profile_id, "builtin": False}
-    )
+    profiles[index] = body.model_copy(update={"id": profile_id, "builtin": False})
     await save_tool_profiles(store, profiles)
     logger.info("Updated tool profile %r", profile_id)
     return [*BUILTIN_PROFILES, *profiles]

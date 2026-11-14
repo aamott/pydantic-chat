@@ -296,9 +296,7 @@ def test_smart_profile_uses_given_judge_model():
     """A ``Model`` instance as ``judge_model`` builds the reviewer directly."""
     judge = TestModel()
     caps = resolve_permission_capabilities("smart", judge_model=judge)
-    reviewer = next(
-        (c for c in caps if isinstance(c, ApprovalReviewer)), None
-    )
+    reviewer = next((c for c in caps if isinstance(c, ApprovalReviewer)), None)
     assert reviewer is not None, "smart profile built no ApprovalReviewer"
     assert reviewer.model is judge
     permissions = [c for c in caps if isinstance(c, Permissions)]
@@ -316,15 +314,11 @@ def test_build_run_kwargs_smart_defaults_judge_to_run_model(tmp_path):
     """
     set_secret("google_api_key", "g-test")  # anthropic stays unconfigured
     kwargs = build_run_kwargs(
-        _chat_settings(
-            model="google:gemini-2.5-flash", permission_profile="smart"
-        ),
+        _chat_settings(model="google:gemini-2.5-flash", permission_profile="smart"),
         tmp_path,
     )
     capabilities = kwargs["capabilities"]
-    reviewer = next(
-        (c for c in capabilities if isinstance(c, ApprovalReviewer)), None
-    )
+    reviewer = next((c for c in capabilities if isinstance(c, ApprovalReviewer)), None)
     assert reviewer is not None, (
         "smart profile fell back to manual despite a configured run model"
     )
@@ -372,9 +366,7 @@ def test_build_run_kwargs_broken_explicit_judge_falls_back_to_run_model(
         tmp_path,
     )
     capabilities = kwargs["capabilities"]
-    reviewer = next(
-        (c for c in capabilities if isinstance(c, ApprovalReviewer)), None
-    )
+    reviewer = next((c for c in capabilities if isinstance(c, ApprovalReviewer)), None)
     assert reviewer is not None, (
         "broken explicit judge_model degraded smart to manual "
         "instead of judging with the run model"
