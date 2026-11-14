@@ -155,17 +155,22 @@ class ChatPatch(BaseModel):
 
 
 class FileOut(BaseModel):
-    """``GET``/``PUT /api/files`` response — one text file served to the CM6 viewer.
+    """``GET``/``PUT /api/files`` response — one workspace file's viewer payload.
 
-    ``language`` is a ``@codemirror/language-data`` name (``None`` when the
-    extension is unmapped — the frontend falls back to plain text). ``path``
-    is the root-relative POSIX spelling. ``version`` is a content hash the
-    client echoes back as ``if_match`` on PUT — the save-time conflict guard
-    that stands in for filesystem watching (see the writable-editor story's
-    known shortcomings).
+    ``kind`` routes the viewer: ``'text'`` files carry a decoded ``content``;
+    ``'image'`` and ``'binary'`` files return metadata only (``content`` is
+    empty) — image bytes come from ``GET /api/files/raw`` and binaries are
+    offered to the OS via ``shell.openPath`` instead of shipping garbage to
+    the renderer. ``language`` is a ``@codemirror/language-data`` name
+    (``None`` when the extension is unmapped — the frontend falls back to
+    plain text). ``path`` is the root-relative POSIX spelling. ``version``
+    is a content hash the client echoes back as ``if_match`` on PUT — the
+    save-time conflict guard that stands in for filesystem watching (see
+    the writable-editor story's known shortcomings).
     """
 
     content: str
+    kind: Literal["text", "image", "binary"] = "text"
     language: str | None = None
     size: int
     path: str

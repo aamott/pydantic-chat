@@ -35,6 +35,16 @@ const api = {
   /** Open (or focus) the singleton settings window. */
   openSettings: (): Promise<void> => ipcRenderer.invoke(IpcChannels.settingsOpen),
 
+  /**
+   * Open a workspace file with the OS default app (`shell.openPath`) — the
+   * binary file branch's escape hatch. Main resolves `path` against the
+   * workspace's stored root and rejects escapes. Resolves to '' on success
+   * or a system error string; the invoke itself rejects on confinement
+   * failures.
+   */
+  openPath: (workspaceId: string, path: string): Promise<string> =>
+    ipcRenderer.invoke(IpcChannels.shellOpenPath, workspaceId, path),
+
   /** File ▸ Open Workspace… — subscribe; returns an unsubscribe fn. */
   onOpenWorkspace: (callback: () => void): (() => void) => {
     const listener = (): void => callback()

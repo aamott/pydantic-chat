@@ -45,6 +45,7 @@ const apiStub: Api = {
   getBackendInfo: async () => null,
   pickWorkspace: async () => null,
   openSettings: async () => {},
+  openPath: async () => '',
   onOpenWorkspace: () => () => {},
   onBackendStatus: () => () => {},
   notifyTheme: () => {},

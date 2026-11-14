@@ -38,6 +38,8 @@ export function RightPanel({ workspaceId }: Readonly<RightPanelProps>): React.JS
   const closePanel = useUiStore((s) => s.closePanel)
   const filePath = useUiStore((s) => s.filePath)
   const line = useUiStore((s) => s.line)
+  /** The FileViewer's unsaved-edits flag → the File tab's dirty dot. */
+  const fileDirty = useUiStore((s) => s.fileDirty)
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-surface">
@@ -58,6 +60,13 @@ export function RightPanel({ workspaceId }: Readonly<RightPanelProps>): React.JS
             >
               <Icon className="h-3.5 w-3.5" />
               {label}
+              {/* Unsaved-changes dot on the File tab. */}
+              {id === 'file' && fileDirty && (
+                <span
+                  className="h-1.5 w-1.5 rounded-full bg-warning"
+                  aria-label="Unsaved changes"
+                />
+              )}
             </button>
           ))}
         </div>

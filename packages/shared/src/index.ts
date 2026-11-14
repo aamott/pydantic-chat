@@ -149,10 +149,21 @@ export interface McpServerPatch {
 /* ------------------------------------------------------------------ */
 
 /**
- * `GET`/`PUT /api/files` response — one UTF-8 workspace file for the
+ * How the viewer renders a file — the backend's `_kind_for`: image
+ * extensions win by name, NUL bytes in the first 8KB mark `binary`,
+ * everything else is `text`.
+ */
+export type FileKind = 'text' | 'image' | 'binary'
+
+/**
+ * `GET`/`PUT /api/files` response — one workspace file for the
  * CodeMirror viewer/editor. `path` is the workspace-root-relative POSIX
  * spelling; `language` is a `@codemirror/language-data` name (`null` when
  * unmapped → plain text).
+ *
+ * `kind` routes the viewer: only `text` files carry a decoded `content`
+ * (`''` otherwise — image bytes come from `GET /api/files/raw`, binaries
+ * open externally via `shell:open-path`).
  *
  * `version` is the backend's content-hash conflict token: echo it back as
  * `if_match` on PUT to get a 409 when the file drifted since the read
@@ -160,6 +171,7 @@ export interface McpServerPatch {
  */
 export interface WorkspaceFile {
   content: string
+  kind: FileKind
   language: string | null
   size: number
   path: string
@@ -329,4 +341,6 @@ export const IpcChannels = {
   backendStatus: 'backend:status',
   /** settings window → main → other renderers: theme applied live. */
   settingsTheme: 'settings:theme',
+  /** renderer → main: open a workspace file with the OS default app. */
+  shellOpenPath: 'shell:open-path',
 } as const

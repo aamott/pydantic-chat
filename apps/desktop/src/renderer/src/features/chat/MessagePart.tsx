@@ -65,7 +65,9 @@ const sanitizeSchema = (
   Array.isArray(sanitizeEntry) ? sanitizeEntry[1] : undefined
 ) as { protocols?: { href?: string[] } } | undefined
 
-const rehypePlugins = [
+/* Exported: the markdown file preview reuses this exact component+plugin
+ * set so a .md in the viewer renders identically to transcript markdown. */
+export const rehypePlugins = [
   defaultRehypePlugins.raw,
   [
     sanitizePlugin,
@@ -177,7 +179,8 @@ function FileAwareLink({
   )
 }
 
-const markdownComponents: Components = { a: FileAwareLink }
+/** Shared `<a>` override — exported with rehypePlugins for the md preview. */
+export const markdownComponents: Components = { a: FileAwareLink }
 
 /* ------------------------------------------------------------------ */
 /* reasoning                                                           */

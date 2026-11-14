@@ -16,11 +16,16 @@
  * The component itself mounts a real CodeMirror EditorView, which jsdom
  * can't do (no ResizeObserver / Range.getClientRects), so the decisions are
  * extracted and tested here rather than through a rendered component.
+ *
+ * `viewerModeFor` guards the kind → branch mapping: the backend's `kind`
+ * decides image/binary, markdown is the only text sub-mode (language hint
+ * first, `.md`/`.markdown` extension as the older-backend fallback).
  */
 import { describe, expect, it } from 'vitest'
 import {
   isDisplayedFile,
   refetchOutcome,
+  viewerModeFor,
   type LoadedFile,
 } from './FileViewer'
 
@@ -94,5 +99,30 @@ describe('refetchOutcome', () => {
     expect(
       refetchOutcome(loaded, 'ws-1', 'src/main.ts', 'const a = 2', true),
     ).toBe('drift')
+  })
+})
+
+describe('viewerModeFor', () => {
+  it('routes non-text kinds to their own branches', () => {
+    expect(viewerModeFor('image', null, 'pic.png')).toBe('image')
+    expect(viewerModeFor('binary', null, 'blob.bin')).toBe('binary')
+    // kind wins over the language hint — a binary never reaches the editor.
+    expect(viewerModeFor('binary', 'python', 'x.py')).toBe('binary')
+    expect(viewerModeFor('image', 'markdown', 'x.svg')).toBe('image')
+  })
+
+  it('routes text kinds to editor or markdown', () => {
+    expect(viewerModeFor('text', 'typescript', 'src/main.ts')).toBe('editor')
+    expect(viewerModeFor('text', null, 'data.xyz')).toBe('editor')
+    expect(viewerModeFor('text', 'markdown', 'README.md')).toBe('markdown')
+  })
+
+  it('falls back to the .md/.markdown extension without a hint', () => {
+    for (const p of ['a.md', 'a.MD', 'docs/guide.markdown']) {
+      expect(viewerModeFor('text', null, p), p).toBe('markdown')
+    }
+    // Lookalikes stay plain editor files.
+    expect(viewerModeFor('text', null, 'a.mdx')).toBe('editor')
+    expect(viewerModeFor('text', null, 'a.md.txt')).toBe('editor')
   })
 })

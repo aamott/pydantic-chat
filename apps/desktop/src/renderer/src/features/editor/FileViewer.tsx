@@ -1,18 +1,28 @@
 /**
  * CodeMirror 6 viewer/editor for workspace files, fetched and saved through
- * the backend (`GET`/`PUT /api/files?workspace_id&path`). Thin
- * useRef/useEffect wrapper — no React editor binding library. Language modes
- * are lazy-loaded via `@codemirror/language-data`; freshness is a re-fetch
- * on window focus.
+ * the backend (`GET`/`PUT /api/files?workspace_id&path`, image bytes via
+ * `GET /api/files/raw`). Thin useRef/useEffect wrapper — no React editor
+ * binding library. Language modes are lazy-loaded via
+ * `@codemirror/language-data`; freshness is a re-fetch on window focus.
  *
- * Editing: an explicit pencil toggle flips a Compartment between read-only
- * and writable; unsaved edits mark the buffer dirty (header indicator +
- * `ui.fileDirty` so file-switch/tab/panel-close can guard). Save is
- * Ctrl/Cmd-S or the Save button → `PUT` with the read-time `version` echoed
- * as `if_match` — a 409 means the file drifted (agent write, external edit)
- * and the conflict banner offers reload / overwrite plus a disk→buffer diff.
- * This save-time check is the story's chosen stand-in for fs watching: the
- * tree and buffers never learn about agent writes in real time.
+ * Viewer modes (`viewerModeFor`, driven by `WorkspaceFile.kind`): text
+ * files get the CodeMirror editor; `.md`/`.markdown` add a rendered-preview
+ * toggle (Streamdown, same component+plugins as the chat transcript);
+ * images render inline from a `?raw` blob fetch (the backend serves no
+ * decoded body for non-text kinds); binaries get a "can't display" panel
+ * with an **Open with default app** button routed through the confined
+ * `shell:open-path` IPC.
+ *
+ * Editing: files open writable by default whenever the effective profile
+ * isn't `workspace_read_only` (same fail-open lookup the pencil gating
+ * uses); the pencil remains as a manual lock/unlock. Unsaved edits mark
+ * the buffer dirty (header dot + `ui.fileDirty` so file-switch/tab/
+ * panel-close can guard). Save is Ctrl/Cmd-S or the Save button → `PUT`
+ * with the read-time `version` echoed as `if_match` — a 409 means the
+ * file drifted (agent write, external edit) and the conflict banner
+ * offers reload / overwrite plus a disk→buffer diff. This save-time
+ * check is the story's chosen stand-in for fs watching: the tree and
+ * buffers never learn about agent writes in real time.
  */
 import { useEffect, useRef, useState } from 'react'
 import { minimalSetup } from 'codemirror'
@@ -38,14 +48,28 @@ import {
 } from '@codemirror/language'
 import { oneDarkHighlightStyle } from '@codemirror/theme-one-dark'
 import { languages } from '@codemirror/language-data'
-import { Pencil, Save, TriangleAlert, X } from 'lucide-react'
-import type { WorkspaceFile, WorkspaceFileWrite } from '@pydantic-chat/shared'
+import { Streamdown } from 'streamdown'
+import {
+  Code,
+  Eye,
+  FileWarning,
+  Pencil,
+  Save,
+  TriangleAlert,
+  X,
+} from 'lucide-react'
+import type {
+  FileKind,
+  WorkspaceFile,
+  WorkspaceFileWrite,
+} from '@pydantic-chat/shared'
 import { apiFetch } from '../../lib/api'
 import { iconButtonClass } from '../../lib/ui'
 import { effectiveProfileId, useChatsStore } from '../../stores/chats'
 import { useModelsStore } from '../../stores/models'
 import { useProfilesStore } from '../../stores/profiles'
 import { useUiStore } from '../../stores/ui'
+import { markdownComponents, rehypePlugins } from '../chat/MessagePart'
 import { unifiedLines, type DiffRow, type DiffRowKind } from './diff'
 
 /* ------------------------------------------------------------------ */
@@ -210,10 +234,42 @@ export function refetchOutcome(
   return dirty ? 'drift' : 'rebuild'
 }
 
+/**
+ * The render branch for one fetched file. `editor` and `markdown` are both
+ * CodeMirror text modes (markdown adds the Streamdown preview toggle);
+ * `image` renders the raw-bytes blob inline; `binary` is the
+ * open-externally panel.
+ */
+export type FileViewerMode = 'editor' | 'markdown' | 'image' | 'binary'
+
+const MARKDOWN_SUFFIX = /\.(?:md|markdown)$/i
+
+/**
+ * kind → viewer-mode mapping. The backend's `kind` decides first; markdown
+ * is the only text sub-mode, picked by the language hint or the extension
+ * (`.md`/`.markdown`) as a fallback for older backends.
+ */
+export function viewerModeFor(
+  kind: FileKind,
+  language: string | null,
+  path: string,
+): FileViewerMode {
+  if (kind === 'image') return 'image'
+  if (kind === 'binary') return 'binary'
+  return language === 'markdown' || MARKDOWN_SUFFIX.test(path)
+    ? 'markdown'
+    : 'editor'
+}
+
 type ViewerState =
   | { status: 'no-workspace' }
   | { status: 'loading' }
-  | { status: 'ready'; size: number; languageName: string | null }
+  | {
+      status: 'ready'
+      size: number
+      languageName: string | null
+      mode: FileViewerMode
+    }
   | { status: 'error'; message: string }
 
 /** A save-time 409 plus the fresh disk copy fetched to explain it. */
@@ -334,6 +390,14 @@ export function FileViewer({
   const [conflict, setConflict] = useState<SaveConflict | null>(null)
   /** A silent refetch saw the disk move while the buffer was dirty. */
   const [drift, setDrift] = useState(false)
+  /** Markdown mode: rendered preview covering the editor. */
+  const [previewOn, setPreviewOn] = useState(false)
+  /** Buffer snapshot the preview renders (taken when preview opens). */
+  const [previewText, setPreviewText] = useState('')
+  /** Object URL for the image branch's raw-bytes blob. */
+  const [imageSrc, setImageSrc] = useState<string | null>(null)
+  /** shell:open-path failure text for the binary branch's button. */
+  const [openError, setOpenError] = useState<string | null>(null)
 
   /* Read-only gating: the active chat's effective profile (chat → workspace
    * → global) is resolved like ProfilePicker's, then looked up in the
@@ -360,12 +424,28 @@ export function FileViewer({
   )
   const canEdit =
     !(profiles.find((p) => p.id === profileId)?.workspace_read_only ?? false)
+  /* Mirror canEdit into a ref: the load effect auto-enters edit mode with
+   * the *current* gating (fail-open while the profile catalog is still
+   * loading, same as the pencil affordance). */
+  const canEditRef = useRef(canEdit)
+  useEffect(() => {
+    canEditRef.current = canEdit
+  }, [canEdit])
 
   /** Sync the dirty flag into local state, the ref, and the ui store. */
   const markDirty = (value: boolean): void => {
     dirtyRef.current = value
     setDirty(value)
     useUiStore.getState().setFileDirty(value)
+  }
+
+  /* The image branch's object URL — a ref mirror so unmount can revoke the
+   * current one without re-subscribing to state. */
+  const imageSrcRef = useRef<string | null>(null)
+  const setImageUrl = (src: string | null): void => {
+    if (imageSrcRef.current) URL.revokeObjectURL(imageSrcRef.current)
+    imageSrcRef.current = src
+    setImageSrc(src)
   }
 
   /** (Re)create the EditorView inside `containerRef` for `content`. */
@@ -522,6 +602,54 @@ export function FileViewer({
       const res = await apiFetch(`/api/files?${params}`)
       if (!res.ok) throw new Error(await describeError(res))
       const file = (await res.json()) as WorkspaceFile
+      const mode = viewerModeFor(file.kind, file.language, path)
+
+      /* Non-text kinds carry no decoded body — the text-buffer flow below
+       * doesn't apply. `version` equality stands in for refetchOutcome's
+       * content comparison: identical bytes keep the current view, anything
+       * else rebuilds (images additionally re-fetch their raw blob). */
+      if (mode === 'image' || mode === 'binary') {
+        const stale =
+          !isDisplayedFile(loadedRef.current, workspaceId, path) ||
+          loadedRef.current?.version !== file.version
+        if (stale) {
+          let src: string | null = null
+          if (mode === 'image') {
+            const raw = await apiFetch(`/api/files/raw?${params}`)
+            if (!raw.ok) throw new Error(await describeError(raw))
+            src = URL.createObjectURL(await raw.blob())
+          }
+          if (cancelled) {
+            if (src) URL.revokeObjectURL(src)
+            return
+          }
+          setImageUrl(src)
+          loadedRef.current = {
+            workspaceId,
+            path,
+            content: '',
+            version: file.version,
+          }
+          /* Fresh view: clear every flag a previous file may have set. */
+          setEditing(false)
+          markDirty(false)
+          setConflict(null)
+          setDrift(false)
+          setSaveError(null)
+          setOpenError(null)
+          setPreviewOn(false)
+        }
+        if (!cancelled) {
+          setState({
+            status: 'ready',
+            size: file.size,
+            languageName: null,
+            mode,
+          })
+        }
+        return
+      }
+
       const outcome = refetchOutcome(
         loadedRef.current,
         workspaceId,
@@ -537,6 +665,7 @@ export function FileViewer({
           status: 'ready',
           size: file.size,
           languageName: lang?.name ?? null,
+          mode,
         })
         return
       }
@@ -554,16 +683,22 @@ export function FileViewer({
         content: file.content,
         version: file.version,
       }
-      /* Fresh buffer: clear every edit-mode flag the previous file set. */
-      setEditing(false)
+      /* Fresh buffer: clear every flag the previous file set, then open
+       * writable — auto-edit unless the effective profile is read-only
+       * (the pencil remains as the manual lock/unlock). */
+      setImageUrl(null)
+      setPreviewOn(mode === 'markdown')
       markDirty(false)
       setConflict(null)
       setDrift(false)
       setSaveError(null)
+      setOpenError(null)
+      setEditingMode(canEditRef.current)
       setState({
         status: 'ready',
         size: file.size,
         languageName: lang?.name ?? null,
+        mode,
       })
       setDocVersion((v) => v + 1) // retrigger the line-scroll effect
     }
@@ -613,13 +748,15 @@ export function FileViewer({
     return () => observer.disconnect()
   }, [])
 
-  /* Destroy the editor on unmount (rebuilds destroy the previous instance
-   * inside buildEditor instead, so identical-content refetches keep it). */
+  /* Destroy the editor + revoke the image blob URL on unmount (rebuilds
+   * destroy the previous instance inside buildEditor/setImageUrl instead,
+   * so identical-content refetches keep it). */
   useEffect(
     () => () => {
       viewRef.current?.destroy()
       viewRef.current = null
       loadedRef.current = null
+      if (imageSrcRef.current) URL.revokeObjectURL(imageSrcRef.current)
       useUiStore.getState().setFileDirty(false)
     },
     [],
@@ -654,6 +791,33 @@ export function FileViewer({
     setEditingMode(false)
   }
 
+  /**
+   * Markdown preview toggle: opening snapshots the live buffer so rendered
+   * output tracks unsaved edits; the snapshot is static while the preview
+   * covers the editor (nothing can change the doc underneath it).
+   */
+  const togglePreview = (): void => {
+    setPreviewOn((on) => {
+      if (!on) {
+        setPreviewText(viewRef.current?.state.doc.toString() ?? '')
+      }
+      return !on
+    })
+  }
+
+  /** Binary branch's button → confined `shell:open-path` in main. */
+  const openExternally = async (): Promise<void> => {
+    if (!workspaceId) return
+    setOpenError(null)
+    try {
+      const error = await window.api.openPath(workspaceId, path)
+      // shell.openPath resolves '' on success or a system error string.
+      if (error) setOpenError(error)
+    } catch (err) {
+      setOpenError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* Header: path + file meta + edit affordances */}
@@ -664,30 +828,65 @@ export function FileViewer({
         <span className="flex shrink-0 items-center gap-1.5">
           {state.status === 'ready' && (
             <span className="text-xs text-faint">
-              {state.languageName ?? 'Plain text'} · {formatSize(state.size)} ·{' '}
-              {editing ? (
-                dirty ? (
-                  <span className="text-warning">modified</span>
-                ) : (
-                  'editing'
-                )
-              ) : (
-                'read-only'
+              {state.mode === 'image' || state.mode === 'binary'
+                ? `${state.mode === 'image' ? 'Image' : 'Binary file'} · ${formatSize(state.size)}`
+                : `${state.languageName ?? 'Plain text'} · ${formatSize(state.size)}`}
+              {(state.mode === 'editor' || state.mode === 'markdown') && (
+                <>
+                  {' · '}
+                  {editing ? (
+                    dirty ? (
+                      /* The unsaved-changes dot — the header half of the
+                       * dirty indicator (the File tab carries the other). */
+                      <span className="inline-flex items-center gap-1 text-warning">
+                        <span
+                          className="h-1.5 w-1.5 rounded-full bg-warning"
+                          aria-label="Unsaved changes"
+                        />
+                        modified
+                      </span>
+                    ) : (
+                      'editing'
+                    )
+                  ) : (
+                    'read-only'
+                  )}
+                </>
               )}
             </span>
           )}
-          {state.status === 'ready' && canEdit && !editing && (
+          {state.status === 'ready' && state.mode === 'markdown' && (
             <button
               type="button"
-              onClick={() => setEditingMode(true)}
-              aria-label="Edit file"
-              title="Edit file"
+              onClick={togglePreview}
+              aria-label={previewOn ? 'Show source' : 'Show preview'}
+              title={previewOn ? 'Show source' : 'Show rendered preview'}
               className={iconButtonClass()}
             >
-              <Pencil className="h-3.5 w-3.5" />
+              {previewOn ? (
+                <Code className="h-3.5 w-3.5" />
+              ) : (
+                <Eye className="h-3.5 w-3.5" />
+              )}
             </button>
           )}
-          {state.status === 'ready' && editing && (
+          {state.status === 'ready' &&
+            (state.mode === 'editor' || state.mode === 'markdown') &&
+            canEdit &&
+            !editing && (
+              <button
+                type="button"
+                onClick={() => setEditingMode(true)}
+                aria-label="Edit file"
+                title="Edit file"
+                className={iconButtonClass()}
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+            )}
+          {state.status === 'ready' &&
+            (state.mode === 'editor' || state.mode === 'markdown') &&
+            editing && (
             <>
               <button
                 type="button"
@@ -766,9 +965,56 @@ export function FileViewer({
         </div>
       )}
 
-      {/* Editor host + status overlays */}
+      {/* Editor host + status/mode overlays */}
       <div className="relative min-h-0 flex-1">
         <div ref={containerRef} className="h-full" />
+        {/* Markdown preview: same Streamdown setup as transcript markdown
+         * (shared components + rehype chain from chat/MessagePart). */}
+        {state.status === 'ready' && state.mode === 'markdown' && previewOn && (
+          <div className="absolute inset-0 overflow-y-auto bg-surface px-4 py-3">
+            <Streamdown
+              mode="static"
+              components={markdownComponents}
+              rehypePlugins={rehypePlugins}
+              className="prose-chat"
+            >
+              {previewText}
+            </Streamdown>
+          </div>
+        )}
+        {/* Image branch: bytes fetched as a blob from /api/files/raw. */}
+        {state.status === 'ready' && state.mode === 'image' && (
+          <div className="absolute inset-0 flex items-center justify-center overflow-auto bg-surface p-4">
+            {imageSrc ? (
+              <img
+                src={imageSrc}
+                alt={path}
+                className="max-h-full max-w-full object-contain"
+              />
+            ) : (
+              <span className="text-sm text-faint">Loading…</span>
+            )}
+          </div>
+        )}
+        {/* Binary branch: no bytes ship to the renderer — open externally. */}
+        {state.status === 'ready' && state.mode === 'binary' && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-surface px-6 text-center">
+            <FileWarning className="h-8 w-8 text-faint" />
+            <p className="text-sm text-muted">
+              Can't display this file — it isn't text.
+            </p>
+            <button
+              type="button"
+              onClick={() => void openExternally()}
+              className="rounded border border-subtle bg-surface px-3 py-1 text-xs text-secondary hover-bg-raised"
+            >
+              Open with default app
+            </button>
+            {openError && (
+              <p className="text-xs text-danger">Couldn't open: {openError}</p>
+            )}
+          </div>
+        )}
         {state.status === 'loading' && <Overlay>Loading…</Overlay>}
         {state.status === 'no-workspace' && (
           <Overlay>Open a workspace to preview files.</Overlay>

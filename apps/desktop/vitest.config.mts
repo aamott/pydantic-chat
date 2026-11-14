@@ -18,7 +18,12 @@ export default defineConfig({
       {
         test: {
           name: 'node',
-          include: ['src/renderer/src/**/*.test.ts'],
+          include: [
+            'src/renderer/src/**/*.test.ts',
+            // Main-process pure helpers (Electron-free): the shell:open-path
+            // confinement resolver and friends.
+            'src/main/**/*.test.ts',
+          ],
           environment: 'node',
         },
       },

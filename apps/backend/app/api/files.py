@@ -17,15 +17,17 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import mimetypes
 import os
 import shutil
 import stat
 import subprocess
 import tempfile
 from pathlib import Path, PurePath
+from typing import Literal
 
 from anyio.to_thread import run_sync
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 from pydantic_ai_harness.filesystem._access import first_matching_pattern
 
 from app.api.deps import StoreDep
@@ -84,6 +86,7 @@ _LANGUAGE_BY_SUFFIX = {
     ".scss": "sass",
     ".less": "less",
     ".md": "markdown",
+    ".markdown": "markdown",
     ".xml": "xml",
     ".yaml": "yaml",
     ".yml": "yaml",
@@ -110,6 +113,30 @@ def _language_for(name: str) -> str | None:
     if language := _LANGUAGE_BY_NAME.get(name.lower()):
         return language
     return _LANGUAGE_BY_SUFFIX.get(Path(name).suffix.lower())
+
+
+# Extensions rendered inline as images rather than as text. Detection is
+# extension-only (before the NUL sniff): an SVG is perfectly valid UTF-8
+# text but still wants the image branch.
+_IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"})
+
+FileKind = Literal["text", "image", "binary"]
+
+
+def _kind_for(name: str, data: bytes) -> FileKind:
+    """The viewer's render branch for one file.
+
+    Image extensions win by name — content sniffing can't tell an SVG from
+    other markup, and a mislabeled image still renders best-effort through
+    ``<img>``. Everything else is text unless a NUL byte lands in the first
+    ``BINARY_SNIFF_BYTES`` (the same heuristic the old read path used to
+    reject binaries outright).
+    """
+    if Path(name).suffix.lower() in _IMAGE_SUFFIXES:
+        return "image"
+    if b"\x00" in data[:BINARY_SNIFF_BYTES]:
+        return "binary"
+    return "text"
 
 
 def _resolve_workspace_file(root: Path, raw: str) -> Path:
@@ -147,13 +174,14 @@ def _resolve_workspace_file(root: Path, raw: str) -> Path:
 
 
 def _read_file_bytes(target: Path) -> tuple[bytes, int]:
-    """Stat and read a regular file, enforcing the size cap and binary sniff.
+    """Stat and read a regular file, enforcing the size cap.
 
-    Runs on a worker thread; returns the raw bytes and byte size.
+    Runs on a worker thread; returns the raw bytes and byte size. Binary
+    content is *not* rejected here — ``_kind_for`` classifies it, the JSON
+    read withholds the body, and the raw route serves it verbatim.
 
     Raises:
-        HTTPException: 404 missing, 400 not a regular file, 413 too large or
-            binary (a null byte in the first ``BINARY_SNIFF_BYTES``).
+        HTTPException: 404 missing, 400 not a regular file, 413 too large.
     """
     try:
         info = target.stat()
@@ -171,11 +199,6 @@ def _read_file_bytes(target: Path) -> tuple[bytes, int]:
             detail=f"File exceeds the {MAX_FILE_BYTES}-byte limit",
         )
     data = target.read_bytes()
-    if b"\x00" in data[:BINARY_SNIFF_BYTES]:
-        raise HTTPException(
-            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-            detail="Binary files are not served",
-        )
     return data, len(data)
 
 
@@ -369,18 +392,47 @@ async def read_file(
     workspace_id: str = Query(min_length=1),
     path: str = Query(min_length=1),
 ) -> FileOut:
-    """Read one UTF-8 file under the workspace root (the viewer's fetch)."""
+    """Read one file under the workspace root (the viewer's fetch).
+
+    Text files carry a UTF-8-decoded ``content``; ``kind`` is ``'image'`` or
+    ``'binary'`` when the file isn't text-shaped, and then ``content`` is
+    empty — image bytes come from ``GET /api/files/raw`` and binaries are
+    opened externally, so no undecodable body crosses the wire.
+    """
     workspace = await _require_workspace(store, workspace_id)
     root = _existing_root(workspace)
     target = _resolve_workspace_file(root, path)
     data, size = await run_sync(_read_file_bytes, target)
+    kind = _kind_for(target.name, data)
     return FileOut(
-        content=data.decode("utf-8", errors="replace"),
+        content=data.decode("utf-8", errors="replace") if kind == "text" else "",
+        kind=kind,
         language=_language_for(target.name),
         size=size,
         path=target.relative_to(root).as_posix(),
         version=_file_version(data),
     )
+
+
+@router.get("/raw")
+async def read_file_raw(
+    store: StoreDep,
+    workspace_id: str = Query(min_length=1),
+    path: str = Query(min_length=1),
+) -> Response:
+    """One file's raw bytes under the workspace root — the image fetch.
+
+    Same confinement as the JSON read (``_resolve_workspace_file``: lexical
+    + resolved containment, protected patterns) and the same size cap. The
+    media type is guessed from the extension — images get their real type,
+    anything else ``application/octet-stream``.
+    """
+    workspace = await _require_workspace(store, workspace_id)
+    root = _existing_root(workspace)
+    target = _resolve_workspace_file(root, path)
+    data, _size = await run_sync(_read_file_bytes, target)
+    media_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+    return Response(content=data, media_type=media_type)
 
 
 @router.put("")

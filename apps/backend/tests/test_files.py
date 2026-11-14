@@ -38,6 +38,8 @@ def client(tmp_path, monkeypatch):
     (project / "ignored_dir").mkdir()
     (project / "ignored_dir" / "deep.txt").write_text("skip me too\n")
     (project / "blob.bin").write_bytes(b"\x89PNG\x00\x01")
+    (project / "img.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 16)
+    (project / "img.svg").write_text("<svg xmlns='http://www.w3.org/2000/svg'/>\n")
     # TrustedHostMiddleware only allows loopback hosts.
     with TestClient(create_app(), base_url="http://127.0.0.1") as test_client:
         yield test_client, project
@@ -136,7 +138,7 @@ def test_read_file_rejects_protected_paths(client):
         assert response.status_code == 403, protected
 
 
-def test_read_file_missing_directory_and_binary(client):
+def test_read_file_missing_and_directory(client):
     test_client, project = client
     workspace_id = _workspace_id(test_client, project)
     assert (
@@ -154,16 +156,6 @@ def test_read_file_missing_directory_and_binary(client):
         ).status_code
         == 400
     )
-    # Null bytes in the first 8KB mark a binary.
-    assert (
-        _get(
-            test_client,
-            "/api/files",
-            workspace_id=workspace_id,
-            path="blob.bin",
-        ).status_code
-        == 413
-    )
     big = project / "big.txt"
     big.write_text("x" * (2 * 1024 * 1024 + 1))
     assert (
@@ -175,6 +167,148 @@ def test_read_file_missing_directory_and_binary(client):
         ).status_code
         == 413
     )
+
+
+# --------------------------------------------------------------------- #
+# kind detection — extension for images, NUL sniff for binaries          #
+# --------------------------------------------------------------------- #
+
+
+def test_read_file_kind_text_for_plain_files(client):
+    test_client, project = client
+    workspace_id = _workspace_id(test_client, project)
+    for path in ("README.md", "src/main.py", "src/lib/util.ts"):
+        body = _get(
+            test_client, "/api/files", workspace_id=workspace_id, path=path
+        ).json()
+        assert body["kind"] == "text", path
+        assert body["content"], path
+
+
+def test_read_file_kind_image_by_extension(client):
+    """Image extensions serve metadata only — bytes come via /api/files/raw."""
+    test_client, project = client
+    workspace_id = _workspace_id(test_client, project)
+    for path in ("img.png", "img.svg"):
+        response = _get(test_client, "/api/files", workspace_id=workspace_id, path=path)
+        assert response.status_code == 200, path
+        body = response.json()
+        assert body["kind"] == "image", path
+        # No decoded body bytes for non-text kinds — the renderer fetches raw.
+        assert body["content"] == "", path
+        assert body["size"] > 0 and body["version"], path
+
+
+def test_read_file_kind_binary_on_nul_sniff(client):
+    """NUL in the first 8KB marks binary — even under a text-ish extension."""
+    test_client, project = client
+    (project / "notes.txt").write_bytes(b"real text\x00\x01\x02")
+    workspace_id = _workspace_id(test_client, project)
+    for path in ("blob.bin", "notes.txt"):
+        response = _get(test_client, "/api/files", workspace_id=workspace_id, path=path)
+        assert response.status_code == 200, path
+        body = response.json()
+        assert body["kind"] == "binary", path
+        assert body["content"] == "", path
+
+
+def test_read_file_kind_language_hints(client):
+    test_client, project = client
+    (project / "docs.markdown").write_text("# docs\n")
+    workspace_id = _workspace_id(test_client, project)
+    for path, language in (
+        ("README.md", "markdown"),
+        ("docs.markdown", "markdown"),
+    ):
+        body = _get(
+            test_client, "/api/files", workspace_id=workspace_id, path=path
+        ).json()
+        assert body["language"] == language, path
+        assert body["kind"] == "text", path
+
+
+# --------------------------------------------------------------------- #
+# GET /api/files/raw — raw bytes (images); same confinement as the read   #
+# --------------------------------------------------------------------- #
+
+
+def _get_raw(client, path: str, workspace_id: str):
+    return client.get(
+        "/api/files/raw",
+        params={"workspace_id": workspace_id, "path": path},
+        headers=AUTH,
+    )
+
+
+def test_read_file_raw_requires_auth(client):
+    test_client, project = client
+    workspace_id = _workspace_id(test_client, project)
+    assert test_client.get("/api/files/raw").status_code == 401
+    assert (
+        test_client.get(
+            "/api/files/raw",
+            params={"workspace_id": workspace_id, "path": "img.png"},
+            headers={"Authorization": "Bearer wrong"},
+        ).status_code
+        == 401
+    )
+
+
+def test_read_file_raw_serves_bytes_and_media_type(client):
+    test_client, project = client
+    workspace_id = _workspace_id(test_client, project)
+    expected_png = (project / "img.png").read_bytes()
+    cases = (
+        ("img.png", expected_png, "image/png"),
+        ("img.svg", (project / "img.svg").read_bytes(), "image/svg+xml"),
+        ("blob.bin", (project / "blob.bin").read_bytes(), "application/octet-stream"),
+    )
+    for path, body_bytes, media_type in cases:
+        response = _get_raw(test_client, path, workspace_id)
+        assert response.status_code == 200, path
+        assert response.content == body_bytes, path
+        assert response.headers["content-type"].startswith(media_type), path
+
+
+def test_read_file_raw_rejects_paths_outside_root(client):
+    test_client, project = client
+    outside = project.parent / "outside.png"
+    outside.write_bytes(b"\x89PNG\r\n\x1a\n")
+    workspace_id = _workspace_id(test_client, project)
+    for bad in ("../outside.png", str(outside), "src/../../outside.png"):
+        response = _get_raw(test_client, bad, workspace_id)
+        assert response.status_code == 403, bad
+
+
+def test_read_file_raw_rejects_symlink_escape(client):
+    test_client, project = client
+    outside = project.parent / "outside.png"
+    outside.write_bytes(b"\x89PNG\r\n\x1a\n")
+    outside_dir = project.parent / "outside_dir"
+    outside_dir.mkdir(exist_ok=True)
+    (outside_dir / "evil.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    os.symlink(outside, project / "link.png")
+    os.symlink(outside_dir, project / "linkdir")
+    workspace_id = _workspace_id(test_client, project)
+    for bad in ("link.png", "linkdir/evil.png"):
+        response = _get_raw(test_client, bad, workspace_id)
+        assert response.status_code == 403, bad
+
+
+def test_read_file_raw_rejects_protected_paths(client):
+    test_client, project = client
+    workspace_id = _workspace_id(test_client, project)
+    for protected in (".env", "key.pem", "src/secrets.txt", ".git/config"):
+        response = _get_raw(test_client, protected, workspace_id)
+        assert response.status_code == 403, protected
+
+
+def test_read_file_raw_missing_directory_and_workspace(client):
+    test_client, project = client
+    workspace_id = _workspace_id(test_client, project)
+    assert _get_raw(test_client, "gone.png", workspace_id).status_code == 404
+    assert _get_raw(test_client, "src", workspace_id).status_code == 400
+    assert _get_raw(test_client, "img.png", "nope").status_code == 404
 
 
 def test_files_unknown_workspace_is_404(client):
@@ -343,6 +477,7 @@ def test_write_file_roundtrip_updates_content_and_stat(client):
     assert body["size"] == len(b"# rewritten\n")
     assert body["path"] == "README.md"
     assert body["language"] == "markdown"
+    assert body["kind"] == "text"
     assert body["version"] != before["version"]
 
     # The file on disk and a fresh GET agree with the write response.
