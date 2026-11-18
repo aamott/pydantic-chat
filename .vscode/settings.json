@@ -1,0 +1,6 @@
+{
+    "sonarlint.connectedMode.project": {
+        "connectionId": "aamott",
+        "projectKey": "aamott_pydantic-chat"
+    }
+}

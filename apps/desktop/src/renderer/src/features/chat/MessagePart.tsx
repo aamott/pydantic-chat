@@ -34,6 +34,7 @@ import {
 } from 'streamdown'
 import { FileCode, Globe, Paperclip } from 'lucide-react'
 import { parseFileHref } from '../../lib/fileRefs'
+import type { CommandBlock } from '../../lib/dataParts'
 import { useUiStore } from '../../stores/ui'
 import {
   ApprovalGroup,
@@ -85,10 +86,16 @@ export function MessagePart({
   part,
   onApprovalResponse,
   approvalsDisabled,
+  shellBlocks,
 }: Readonly<{
   part: Part
   onApprovalResponse: ApprovalResponder
   approvalsDisabled?: boolean
+  /**
+   * `data-shell` phases folded per `tool_call_id` for this message — gives
+   * shell tool cards their live output (see `collectShellBlocks`).
+   */
+  shellBlocks?: ReadonlyMap<string, CommandBlock>
 }>): React.JSX.Element | null {
   if (isPendingApproval(part)) {
     // Normally reached via grouped calls in MessageList; lone stragglers
@@ -102,7 +109,7 @@ export function MessagePart({
     )
   }
   if (isToolUIPart(part)) {
-    return <ToolCard part={part} />
+    return <ToolCard part={part} shellBlock={shellBlocks?.get(part.toolCallId)} />
   }
   if (isDataUIPart(part)) {
     return <DataCard part={part} />
@@ -213,8 +220,9 @@ const DATA_RENDERERS: Record<
 > = {
   // `data-plan` — full plan snapshot; latest per message (see transcriptParts).
   plan: (data) => <PlanCard data={data} />,
-  // `data-shell`/`data-run-meta` are intentionally unregistered: the Terminal
-  // tab and the chat header own them, and MessageList drops them inline.
+  // `data-shell`/`data-run-meta` are intentionally unregistered: shell
+  // phases fold into their tool card via `shellBlocks`, run-meta lives in
+  // the chat header, and `transcriptParts` drops both kinds inline.
 }
 
 function DataCard({

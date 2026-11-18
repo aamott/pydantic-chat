@@ -1,11 +1,15 @@
 /**
- * Tests for the ui store's unsaved-edits guards.
+ * Tests for the ui store's file-tab model and unsaved-edits guards.
  *
- * Every path that would drop the FileViewer's dirty buffer — `openFile` to
- * a different file, `setTab` away from File (unmounts the viewer),
+ * Every path that would drop the FileViewer's dirty buffer — `openFile` or
+ * `activateTab` to a different file, `closeTab` on the active tab,
  * `closePanel`, `togglePanel` — asks `globalThis.confirm` first. A missing
  * confirm (node env, odd host) allows the action rather than trapping the
  * user.
+ *
+ * The tab model itself: picks open preview tabs (one unpinned slot reused
+ * per selection), pinning frees the slot, and editing a buffer pins its
+ * tab via `setFileDirty`.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useUiStore } from './ui'
@@ -13,12 +17,14 @@ import { useUiStore } from './ui'
 function seed(overrides: Partial<ReturnType<typeof useUiStore.getState>> = {}) {
   useUiStore.setState({
     rightPanelOpen: true,
-    activeTab: 'file',
     filePath: 'src/a.ts',
     line: null,
-    terminalTarget: null,
     fileDirty: false,
     openFiles: {},
+    openTabs: {},
+    drawerView: 'explorer',
+    drawerOpen: false,
+    drawerPinned: true,
     drafts: {},
     workspaceOpen: {},
     currentWorkspaceId: 'ws-1',
@@ -76,29 +82,134 @@ describe('openFile', () => {
   })
 })
 
-describe('setTab', () => {
-  it('blocks leaving the File tab with a dirty buffer when declined', () => {
-    stubConfirm(false)
-    seed({ fileDirty: true })
-    useUiStore.getState().setTab('explorer')
-    expect(useUiStore.getState().activeTab).toBe('file')
-  })
-
-  it('leaves the File tab when the discard is confirmed', () => {
-    stubConfirm(true)
-    seed({ fileDirty: true })
-    useUiStore.getState().setTab('explorer')
+describe('preview tabs', () => {
+  it('openFile creates a single preview tab reused by the next pick', () => {
+    useUiStore.getState().openFile('src/b.ts')
+    useUiStore.getState().openFile('src/c.ts')
     const s = useUiStore.getState()
-    expect(s.activeTab).toBe('explorer')
-    expect(s.fileDirty).toBe(false)
+    // The unpinned slot is replaced — one tab total, now c.ts.
+    expect(s.openTabs['ws-1']).toEqual([
+      { path: 'src/c.ts', pinned: false, line: null },
+    ])
+    expect(s.filePath).toBe('src/c.ts')
   })
 
-  it('switching between non-file tabs never asks', () => {
+  it('re-opening an existing tab reuses it instead of the preview slot', () => {
+    seed({
+      openTabs: {
+        'ws-1': [
+          { path: 'src/a.ts', pinned: true, line: null },
+          { path: 'src/b.ts', pinned: false, line: null },
+        ],
+      },
+    })
+    useUiStore.getState().openFile('src/a.ts')
+    expect(useUiStore.getState().openTabs['ws-1']).toHaveLength(2)
+  })
+
+  it('a pinned tab frees the preview slot — the next pick appends', () => {
+    useUiStore.getState().openFile('src/b.ts')
+    useUiStore.getState().pinTab('src/b.ts')
+    useUiStore.getState().openFile('src/c.ts')
+    expect(useUiStore.getState().openTabs['ws-1']).toEqual([
+      { path: 'src/b.ts', pinned: true, line: null },
+      { path: 'src/c.ts', pinned: false, line: null },
+    ])
+  })
+
+  it('marking the buffer dirty pins the active tab', () => {
+    useUiStore.getState().openFile('src/b.ts')
+    useUiStore.getState().setFileDirty(true)
+    expect(useUiStore.getState().openTabs['ws-1']).toEqual([
+      { path: 'src/b.ts', pinned: true, line: null },
+    ])
+    // Clearing dirty (save) does NOT un-pin.
+    useUiStore.getState().setFileDirty(false)
+    expect(useUiStore.getState().openTabs['ws-1']?.[0].pinned).toBe(true)
+  })
+})
+
+describe('activateTab', () => {
+  const tabs = {
+    'ws-1': [
+      { path: 'src/a.ts', pinned: true, line: 10 },
+      { path: 'src/b.ts', pinned: false, line: null },
+    ],
+  }
+
+  it('blocks a switch with a dirty buffer when the discard is declined', () => {
+    stubConfirm(false)
+    seed({ fileDirty: true, openTabs: tabs })
+    useUiStore.getState().activateTab('src/b.ts')
+    const s = useUiStore.getState()
+    expect(s.filePath).toBe('src/a.ts')
+    expect(s.fileDirty).toBe(true)
+  })
+
+  it('switches (restoring the tab line) when the discard is confirmed', () => {
+    stubConfirm(true)
+    seed({ fileDirty: true, openTabs: tabs })
+    useUiStore.getState().activateTab('src/b.ts')
+    const s = useUiStore.getState()
+    expect(s.filePath).toBe('src/b.ts')
+    expect(s.fileDirty).toBe(false)
+    expect(s.openFiles['ws-1']).toEqual({ path: 'src/b.ts', line: null })
+  })
+
+  it('restores the tab\'s remembered line', () => {
+    seed({ filePath: 'src/b.ts', openTabs: tabs })
+    useUiStore.getState().activateTab('src/a.ts')
+    expect(useUiStore.getState().line).toBe(10)
+  })
+
+  it('activating the current tab is a no-op (buffer kept)', () => {
     const confirm = stubConfirm(false)
-    seed({ activeTab: 'explorer' })
-    useUiStore.getState().setTab('diff')
+    seed({ fileDirty: true, openTabs: tabs })
+    useUiStore.getState().activateTab('src/a.ts')
     expect(confirm).not.toHaveBeenCalled()
-    expect(useUiStore.getState().activeTab).toBe('diff')
+    expect(useUiStore.getState().fileDirty).toBe(true)
+  })
+})
+
+describe('closeTab', () => {
+  const tabs = {
+    'ws-1': [
+      { path: 'src/a.ts', pinned: true, line: null },
+      { path: 'src/b.ts', pinned: false, line: null },
+    ],
+  }
+
+  it('removes a non-active tab without touching the buffer', () => {
+    seed({ fileDirty: true, openTabs: tabs })
+    useUiStore.getState().closeTab('src/b.ts')
+    const s = useUiStore.getState()
+    expect(s.openTabs['ws-1']).toHaveLength(1)
+    expect(s.filePath).toBe('src/a.ts')
+    expect(s.fileDirty).toBe(true)
+  })
+
+  it('closing the active dirty tab asks first and honors a decline', () => {
+    stubConfirm(false)
+    seed({ fileDirty: true, openTabs: tabs })
+    useUiStore.getState().closeTab('src/a.ts')
+    expect(useUiStore.getState().openTabs['ws-1']).toHaveLength(2)
+  })
+
+  it('closing the active tab activates its neighbor', () => {
+    seed({ openTabs: tabs })
+    useUiStore.getState().closeTab('src/a.ts')
+    const s = useUiStore.getState()
+    expect(s.filePath).toBe('src/b.ts')
+    expect(s.openFiles['ws-1']).toEqual({ path: 'src/b.ts', line: null })
+  })
+
+  it('closing the last tab clears the view', () => {
+    seed({ openTabs: { 'ws-1': [{ path: 'src/a.ts', pinned: false, line: 5 }] } })
+    useUiStore.getState().closeTab('src/a.ts')
+    const s = useUiStore.getState()
+    expect(s.filePath).toBeNull()
+    expect(s.line).toBeNull()
+    expect(s.openFiles['ws-1']).toBeUndefined()
   })
 })
 
@@ -128,6 +239,22 @@ describe('closePanel / togglePanel', () => {
     useUiStore.getState().togglePanel() // closed → opens without asking
     expect(confirm).toHaveBeenCalledTimes(1) // only the close asked
     expect(useUiStore.getState().rightPanelOpen).toBe(true)
+  })
+})
+
+describe('drawer', () => {
+  it('toggleDrawer flips the overlay flag or the pinned preference', () => {
+    useUiStore.getState().toggleDrawer(true)
+    expect(useUiStore.getState().drawerOpen).toBe(true)
+    expect(useUiStore.getState().drawerPinned).toBe(true)
+    useUiStore.getState().toggleDrawer(false)
+    expect(useUiStore.getState().drawerPinned).toBe(false)
+    expect(useUiStore.getState().drawerOpen).toBe(true)
+  })
+
+  it('setDrawerView selects the hosted view', () => {
+    useUiStore.getState().setDrawerView('diff')
+    expect(useUiStore.getState().drawerView).toBe('diff')
   })
 })
 

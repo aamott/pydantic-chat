@@ -10,11 +10,11 @@
  */
 import type { ReactNode } from 'react'
 import type { DynamicToolUIPart, ToolUIPart } from 'ai'
-import { SquareTerminal, Wrench } from 'lucide-react'
+import { Wrench } from 'lucide-react'
 import { fileDiffFromTool } from '../editor/diff'
 import { DiffView } from '../editor/DiffView'
+import type { CommandBlock } from '../../lib/dataParts'
 import { touchedFileRef, toolName } from '../../lib/toolArgs'
-import { useUiStore } from '../../stores/ui'
 import {
   Collapsible,
   FileLink,
@@ -33,15 +33,24 @@ const STATE_LABEL: Record<string, string> = {
   'output-denied': 'denied',
 }
 
+/** Live shell output is capped to its tail — the head rarely matters. */
+const SHELL_LIVE_TAIL_CHARS = 4096
+
 export function ToolCard({
   part,
+  shellBlock,
 }: Readonly<{
   part: ToolUIPart | DynamicToolUIPart
+  /**
+   * Folded `data-shell` phases for this call (see `collectShellBlocks`) —
+   * supplies live output while the command runs. Absent on reloaded
+   * transcripts (`data-*` parts are stream-only).
+   */
+  shellBlock?: CommandBlock
 }>): React.JSX.Element {
   const state = part.state
   const errored = state === 'output-error' || state === 'output-denied'
   const name = toolName(part)
-  const openTerminal = useUiStore((s) => s.openTerminal)
   const input = 'input' in part ? part.input : undefined
   const output = 'output' in part ? part.output : undefined
   const ref = touchedFileRef(name, input)
@@ -60,17 +69,16 @@ export function ToolCard({
     >
       <div className="space-y-2 text-xs">
         {/* The persistent `shell` tool streams `data-shell` phases during
-         * execution — jump to this call's live block in the Terminal tab. */}
-        {name === 'shell' && (
-          <button
-            type="button"
-            onClick={() => openTerminal(part.toolCallId)}
-            className="flex items-center gap-1 text-accent hover-text-accent"
-          >
-            <SquareTerminal className="h-3 w-3" />
-            View in Terminal
-          </button>
-        )}
+         * execution — show the live tail while the call is unresolved;
+         * once output lands, the static dump below takes over. */}
+        {name === 'shell' &&
+          shellBlock &&
+          shellBlock.output !== '' &&
+          state !== 'output-available' && (
+            <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded bg-surface px-2 py-1.5 font-mono text-secondary">
+              {shellBlock.output.slice(-SHELL_LIVE_TAIL_CHARS)}
+            </pre>
+          )}
         {ref && (
           <div>
             <p className="mb-0.5 font-medium text-muted">path</p>

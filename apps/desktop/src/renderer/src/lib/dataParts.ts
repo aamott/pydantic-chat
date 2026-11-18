@@ -183,13 +183,78 @@ export function latestDataPart<T>(
 }
 
 /* ------------------------------------------------------------------ */
+/* shell blocks                                                        */
+/* ------------------------------------------------------------------ */
+
+/** One `shell` tool call, accumulated across its `data-shell` phases. */
+export interface CommandBlock {
+  /** `tool_call_id` — also the lookup key for its tool card. */
+  id: string
+  toolName: string | null
+  command: string | null
+  pid: number | null
+  output: string
+  finished: boolean
+  exitCode: number | null
+  truncated: boolean | null
+  lineCount: number | null
+  outputPath: string | null
+  statusPath: string | null
+}
+
+/**
+ * Fold every `data-shell` part in `messages` into per-call blocks.
+ * Events missing `tool_call_id` (shouldn't happen — the envelope always
+ * carries it, but the field is nullable on the wire) share one block rather
+ * than being dropped. `finished` fires when the tool stops waiting, so a
+ * detached command reports `exitCode: null`.
+ */
+export function collectShellBlocks(messages: UIMessage[]): CommandBlock[] {
+  const blocks = new Map<string, CommandBlock>()
+  for (const phase of dataPartsOf(messages, 'shell', asShellPhase)) {
+    const id = phase.tool_call_id ?? 'shell'
+    let block = blocks.get(id)
+    if (!block) {
+      block = {
+        id,
+        toolName: phase.tool_name,
+        command: null,
+        pid: null,
+        output: '',
+        finished: false,
+        exitCode: null,
+        truncated: null,
+        lineCount: null,
+        outputPath: null,
+        statusPath: null,
+      }
+      blocks.set(id, block)
+    }
+    if (phase.tool_name) block.toolName = phase.tool_name
+    if (phase.command) block.command = phase.command
+    if (phase.pid !== null) block.pid = phase.pid
+    if (phase.phase === 'output' && phase.text) block.output += phase.text
+    if (phase.phase === 'finished') {
+      block.finished = true
+      block.exitCode = phase.exit_code
+      block.truncated = phase.truncated
+      block.lineCount = phase.line_count
+      block.outputPath = phase.output_path
+      block.statusPath = phase.status_path
+    }
+  }
+  return [...blocks.values()]
+}
+
+/* ------------------------------------------------------------------ */
 /* transcript shaping                                                  */
 /* ------------------------------------------------------------------ */
 
 /**
- * Data parts that never render inline in the transcript: `data-shell` lives
- * in the Terminal tab and `data-run-meta` in the chat header — as inline
- * cards they'd be one JSON dump per shell output chunk / run.
+ * Data parts that never render inline in the transcript: `data-shell` is
+ * folded into the matching shell tool card (`collectShellBlocks`) and
+ * `data-run-meta` lives in the chat header — as inline cards they'd be one
+ * JSON dump per shell output chunk / run.
  */
 const HIDDEN_DATA_PARTS = new Set(['data-shell', 'data-run-meta'])
 

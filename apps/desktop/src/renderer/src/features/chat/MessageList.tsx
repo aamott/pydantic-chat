@@ -8,11 +8,15 @@
  * disabled while a run is live because `addToolApprovalResponse` only
  * auto-resubmits when the chat isn't streaming.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ChatStatus, UIMessage } from 'ai'
 import type { PromptVersion } from '@pydantic-chat/shared'
 import { Pencil, RotateCcw } from 'lucide-react'
-import { transcriptParts } from '../../lib/dataParts'
+import {
+  collectShellBlocks,
+  transcriptParts,
+  type CommandBlock,
+} from '../../lib/dataParts'
 import { lastAssistantMessage, messageText } from '../../lib/messages'
 import { versionsForMessage } from '../../lib/versions'
 import {
@@ -165,10 +169,16 @@ function MessageRow({
   canRegenerate: boolean
   onRegenerate: () => void
 }>): React.JSX.Element {
-  // Dedicated surfaces own some data parts: `data-shell` → Terminal tab,
-  // `data-run-meta` → header badge, and only the latest `data-plan`
-  // snapshot per message is worth a card (see transcriptParts).
+  // Dedicated surfaces own some data parts: `data-shell` phases fold into
+  // their tool cards (live shell output, no terminal view), `data-run-meta`
+  // → header badge, and only the latest `data-plan` snapshot per message
+  // is worth a card (see transcriptParts).
   const parts = transcriptParts(message.parts)
+  /** `data-shell` blocks keyed by tool_call_id for ToolCard lookups. */
+  const shellBlocks = useMemo<ReadonlyMap<string, CommandBlock>>(
+    () => new Map(collectShellBlocks([message]).map((b) => [b.id, b])),
+    [message],
+  )
 
   if (message.role === 'user') {
     const text = messageText(message)
@@ -227,6 +237,7 @@ function MessageRow({
             part={group.part}
             onApprovalResponse={onApprovalResponse}
             approvalsDisabled={approvalsDisabled}
+            shellBlocks={shellBlocks}
           />
         ),
       )}

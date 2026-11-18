@@ -9,6 +9,7 @@ apps/desktop/    # Electron app (electron-vite): src/{main,preload,renderer}
 apps/backend/    # FastAPI + pydantic-ai sidecar (uv project): app/{api,agent,db}
 packages/shared/ # TS types mirroring API contracts
 plans/           # epics + stories (see Planning System)
+plans/blueprint/specs/libraries.md  # approved library versions
 ```
 
 ## Core architecture

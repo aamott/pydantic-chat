@@ -1,6 +1,9 @@
 /**
- * Terminal tab body: the persistent `shell` tool's live output for the
- * active chat, one block per tool call.
+ * DORMANT — no longer mounted anywhere. The P2 right-panel redesign
+ * removed the Terminal tab: live `data-shell` output is folded into the
+ * matching chat tool card instead (`lib/dataParts.collectShellBlocks` +
+ * ToolCard's `shellBlock` prop). This file is kept on disk in case a
+ * dedicated shell view returns.
  *
  * `data-shell` parts stream `started`/`output`/`finished` phases DURING a
  * command (the static `tool-shell` part only resolves at the end), so this
@@ -14,80 +17,21 @@
  */
 import { useEffect, useMemo, useRef } from 'react'
 import { useChat } from '@ai-sdk/react'
-import type { UIMessage } from 'ai'
 import { Loader2, SquareTerminal } from 'lucide-react'
-import { dataPartsOf, asShellPhase } from '../../lib/dataParts'
+import {
+  collectShellBlocks,
+  type CommandBlock,
+} from '../../lib/dataParts'
 import { FileLink } from '../chat/partKit'
 import { EmptyState } from './EmptyState'
 import type { AppChat } from '../../lib/transport'
 import { getChat, useChatsStore } from '../../stores/chats'
-import { useUiStore } from '../../stores/ui'
 
 /** Mirrors the backend's 64k tool-output cap; the tail is what matters. */
 const OUTPUT_CHAR_CAP = 64 * 1024
 
 /** Pixels from the bottom that still count as "at the bottom". */
 const STICK_THRESHOLD_PX = 48
-
-/** One `shell` tool call, accumulated across its `data-shell` phases. */
-interface CommandBlock {
-  /** `tool_call_id` — also the DOM anchor for tool-card jumps. */
-  id: string
-  toolName: string | null
-  command: string | null
-  pid: number | null
-  output: string
-  finished: boolean
-  exitCode: number | null
-  truncated: boolean | null
-  lineCount: number | null
-  outputPath: string | null
-  statusPath: string | null
-}
-
-/**
- * Fold every `data-shell` part in the transcript into per-call blocks.
- * Events missing `tool_call_id` (shouldn't happen — the envelope always
- * carries it, but the field is nullable on the wire) share one block rather
- * than being dropped. `finished` fires when the tool stops waiting, so a
- * detached command reports `exitCode: null`.
- */
-export function collectShellBlocks(messages: UIMessage[]): CommandBlock[] {
-  const blocks = new Map<string, CommandBlock>()
-  for (const phase of dataPartsOf(messages, 'shell', asShellPhase)) {
-    const id = phase.tool_call_id ?? 'shell'
-    let block = blocks.get(id)
-    if (!block) {
-      block = {
-        id,
-        toolName: phase.tool_name,
-        command: null,
-        pid: null,
-        output: '',
-        finished: false,
-        exitCode: null,
-        truncated: null,
-        lineCount: null,
-        outputPath: null,
-        statusPath: null,
-      }
-      blocks.set(id, block)
-    }
-    if (phase.tool_name) block.toolName = phase.tool_name
-    if (phase.command) block.command = phase.command
-    if (phase.pid !== null) block.pid = phase.pid
-    if (phase.phase === 'output' && phase.text) block.output += phase.text
-    if (phase.phase === 'finished') {
-      block.finished = true
-      block.exitCode = phase.exit_code
-      block.truncated = phase.truncated
-      block.lineCount = phase.line_count
-      block.outputPath = phase.output_path
-      block.statusPath = phase.status_path
-    }
-  }
-  return [...blocks.values()]
-}
 
 export function TerminalView(): React.JSX.Element {
   const activeChatId = useChatsStore((s) => s.activeChatId)
@@ -103,28 +47,12 @@ function TerminalList({ chat }: Readonly<{ chat: AppChat }>): React.JSX.Element 
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const stickToBottom = useRef(true)
-  const terminalTarget = useUiStore((s) => s.terminalTarget)
-  const clearTerminalTarget = useUiStore((s) => s.clearTerminalTarget)
 
   // Follow appended output while the user hasn't scrolled away.
   useEffect(() => {
     const el = scrollRef.current
     if (el && stickToBottom.current) el.scrollTop = el.scrollHeight
   }, [blocks])
-
-  // A shell tool card's "View in Terminal" jump scrolls to its block.
-  useEffect(() => {
-    if (!terminalTarget || !scrollRef.current) return
-    const el = scrollRef.current.querySelector(
-      `[data-shell-block="${CSS.escape(terminalTarget)}"]`,
-    )
-    if (el) {
-      stickToBottom.current = false
-      el.scrollIntoView({ block: 'start' })
-      clearTerminalTarget()
-    }
-    // Not found yet: the block may still be streaming in — retry next render.
-  }, [terminalTarget, blocks, clearTerminalTarget])
 
   const onScroll = (): void => {
     const el = scrollRef.current
