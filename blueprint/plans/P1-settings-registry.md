@@ -24,8 +24,9 @@ catalogs, tool profiles, and the MCP server registry.
   custom = validated JSON docs (allow/deny + mode + judge hints) in KV.
 - **Settings = second `BrowserWindow`** (singleton, `settings.html`), with
   theme relay → both windows (`data-theme`; dark/light/system).
-- **MCP registry:** CRUD for stdio+http specs; per-workspace mask;
-  lazy status probe — failures degrade to disabled + notice, never crash.
+- **MCP registry:** CRUD for stdio+http specs; per-workspace mask. Explicit
+  enablement consents to launch a stdio server, including for status probes;
+  tool-call approval is separate. Failures disable with notice, never crash.
 - **Model catalog:** live provider discovery + static fallback (no external
   service); thinking picker maps to `ModelSettings.thinking` levels the
   provider supports.

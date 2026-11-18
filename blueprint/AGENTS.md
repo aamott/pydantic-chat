@@ -34,7 +34,7 @@ references/      # app #1 examples; not app #2 contracts
 
 - Use Bun workspaces for JavaScript/TypeScript and `uv` for Python; keep Node on `PATH` for Electron tooling.
 - Keep files focused; use strict TypeScript with no `any` and Google-style Python docstrings.
-- Prefer native `pydantic-ai`/harness features over custom equivalents.
+- Configure and integration-test native approval wrappers, deferred results, revision checks, and snapshot/effect tracking. Do not add parallel approval engines, revision systems, tool executors, or effect ledgers.
 - Use subagents for major implementation work and research, with disjoint edit scopes. Write reusable findings under `docs/research/`.
 - Decide ordinary implementation details autonomously. Escalate unresolved product behavior, new dependencies, security weakening, or conflicts in target contracts; do not silently change scope.
 - Pin JavaScript dependencies exactly. Pin `pydantic-ai-slim` and `pydantic-ai-harness` exactly and in lockstep; deliberately bump version-coupled sets together.
@@ -45,7 +45,7 @@ references/      # app #1 examples; not app #2 contracts
 
 - Never log API keys, bearer tokens, or MCP secrets; never store app state in a workspace.
 - Protect `secrets.json` with owner-only permissions (`0600` on POSIX; equivalent restrictions on Windows). Write-protect `.env` files, enforce `denied_patterns` for read denial, and make file discovery gitignore-aware.
-- `LocalWorkspace` confines file tools. Shell safety comes from `Permissions` and explicit command lists—not from assuming workspace confinement covers shell execution.
+- `LocalWorkspace` confines file tools, not shell/MCP execution. Configure native permissions and command restrictions; neither smart review nor local file confinement is an OS sandbox.
 - Keep loopback binding and bearer authentication mandatory. Preserve Electron context isolation and a narrow preload/API surface.
 - Handle Windows, macOS, and Linux paths, quoting, process groups, graceful shutdown, and Windows `taskkill` branches from the start.
 

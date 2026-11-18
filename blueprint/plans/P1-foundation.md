@@ -19,8 +19,9 @@ monorepo toolchain, verify gate — every dependency documented.
 - **Supervision:** `/health` poll; capped exponential restart backoff;
   process-group kill (`taskkill /T` on Windows); external-backend env
   override for backend dev; `--reload` in dev.
-- **Token hygiene:** bearer + keys never logged, never persisted, headers
-  only — never in URLs.
+- **Token hygiene:** never log bearer/provider keys or put them in URLs.
+  The launch bearer is never persisted; provider keys use restricted secrets
+  storage. Send the bearer in authorization headers only.
 - **CORS:** allow the dev renderer's exact origin or packaged `Origin: null`
   for the current launch; no wildcard origins. Bearer auth remains mandatory.
 - **Packaging:** v1 ships unpacked via `electron-builder --dir` and requires
@@ -41,10 +42,12 @@ monorepo toolchain, verify gate — every dependency documented.
    `TrustedHost` loopback-only; renderer CORS; wires api/agent/db packages.
    Test missing/wrong bearer rejection, including `/openapi.json`.
 4. **Sidecar supervisor** — spawn → `/health` wait → restart backoff →
-   clean kill on quit incl. Windows `taskkill`; env scrubbed.
+   clean kill on quit incl. Windows `taskkill`; env scrubbed. Verify tool/MCP
+   children do not inherit the bearer or unrelated provider credentials.
 5. **Windows + menu + IPC** — main window (built-in
    `windowStatePersistence`, unique window names), context isolation, no
-   renderer Node integration, validated preload IPC; settings window + theme relay, app menu
+   renderer Node integration, IPC sender/frame validation, restrictive CSP,
+   unexpected navigation/popups blocked; settings window + theme relay, app menu
    (Open Workspace ⌘O / Settings ⌘,), `menu:open-workspace` → renderer via
    preload; single-instance lock + second-instance focus; `before-quit`
    graceful stop; macOS `activate` re-open; loading/error placeholder
@@ -56,4 +59,5 @@ monorepo toolchain, verify gate — every dependency documented.
    manifests; nothing enters a manifest that isn't approved there.
 8. **Unpacked build smoke** — `bun run dist` produces a writable `--dir`
    layout with backend source bundled; sidecar starts and authenticated ping
-   works outside dev. Document Python/uv prerequisites and first-run downloads.
+   works outside dev. Document Python/uv prerequisites and first-run downloads;
+   inspect artifacts to exclude credentials, `.env`, local databases, and logs.

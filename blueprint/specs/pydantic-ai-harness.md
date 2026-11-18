@@ -14,10 +14,11 @@ contribute instructions, tools, toolset wrappers, hooks and lifecycle events.
 Per-run list is assembled in the agent factory and passed to
 `dispatch_request(capabilities=[...])`.
 
-**Cross-cutting wrapper rule:** implement cross-cutting tool gating as
+**Cross-cutting wrapper rule:** implement profile filtering as
 `get_wrapper_toolset()` returning a `FilteredToolset` over the assembled
 toolset — never modify tool definitions or toolsets. The filter **must always
 permit `load_capability`** or Harness-native skills break.
+Reuse native filters/approval wrappers; do not duplicate gates with custom interceptors.
 
 ## Capabilities used
 
@@ -34,6 +35,13 @@ permit `load_capability`** or Harness-native skills break.
 | `StepPersistence` | Resumable runs | below |
 
 ## `Permissions` (verified against source — mode names are misleading)
+
+MCP policy: non-bypass profiles use `ApprovalRequiredToolset` /
+`toolset.approval_required()`; smart's reviewer may handle deferred approvals.
+Read-only excludes side-effecting MCP tools; do not assume `Permissions`
+classifies arbitrary MCP tools. [Upstream approval docs](https://pydantic.dev/docs/ai/tools-toolsets/toolsets/)
+were checked via Context7, not pinned-version or dynamic-tool coverage proof;
+verify installed behavior, including `load_capability` and approval continuation.
 
 ```python
 PermissionMode = Literal['full', 'auto', 'read-only']
@@ -96,15 +104,17 @@ judge resolves explicit `judge_model` → run's own model → degrade to
 StepPersistence(store=SqliteStepStore(database=path | connection=conn))
 ```
 
+- Native `StepPersistence` records snapshots and tool effects; use its effect ledger, not a parallel app ledger.
 - `SqliteStepStore`: `database=` xor `connection=`; `media_store='auto'`
   resolves to `SqliteMediaStore` in the same db; `media_threshold_bytes`
   (default ~64k) externalizes large payloads; `max_snapshots_per_run`.
 - `StepStore` protocol: `list_runs`, `list_events(run_id=)`,
   `save_snapshot`, `latest_snapshot`, `list_unresolved_tool_effects`.
 - `continue_run(store, run_id=..., include_interrupted=)` — rebuilds
-  `ModelMessage`s for resume (raises `LookupError` when no snapshot). The
-  app's `/resume` uses `list_runs`/`latest_snapshot`/
-  `list_unresolved_tool_effects` directly instead — same store API.
+  `ModelMessage`s for resume (raises `LookupError` when no snapshot). Prefer
+  this helper where it preserves adapter/history requirements; the reference
+  queries snapshots directly. Use native store APIs for status/effect checks,
+  documenting any gap before writing custom continuation reconstruction.
 - Emits `SnapshotSavedEvent` (capability event → `data-*` part if bridged).
 - `RunRecord` / `StepEvent` / `ToolEffectRecord` / `ContinuableSnapshot` in
   `_types`; store protocol also has `register_run`/`get_run`/`append_event`/
@@ -127,8 +137,7 @@ receives them. Our events bridge (`agent/events.py`) maps:
 `CommandOutputEvent` / `CommandFinishedEvent` (`shell/_events`) → `data-shell`;
 plus app-defined `data-run-meta`: `Hooks` emits `{run_id, model,
 permission_profile}` at start; completion adds `usage` and nullable `cost`.
-The
-adapter itself emits a transient `data-conversation-saved` chunk on store
+The adapter itself emits a transient `data-conversation-saved` chunk on store
 saves. All `data-*` parts are stream-only — not persisted — so consumers
 treat them as optional on reload.
 
@@ -149,7 +158,8 @@ treat them as optional on reload.
 `CodeMode`, `SubAgents` (off), `Memory`, web research/browser, hosted
 integrations, context compaction, `ToolGuardrail`, sandboxed workspace
 backends (Modal/E2B/…), Render Workflows. Don't add them to app #2's spec —
-the tool surface stays exactly the 6 Coder tools + plan tools + MCP.
+the default surface is Coder + plan tools + MCP and native skill-loading
+machinery, reduced by the effective profile (read-only omits Coder).
 
 ## Security model to carry over
 

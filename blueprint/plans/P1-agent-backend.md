@@ -34,6 +34,7 @@ permission profiles, judge, skills, MCP toolsets — all harness-native.
 - **Judge resolution:** explicit `judge_model` → run's own model → degrade
   to `manual` with warning; unresolvable *explicit* judge fails loudly.
   `ApprovalReviewer(question=)` is required; approve-or-ask, never denies.
+  Smart review is selective, not every-call; see spec §Permissions/§ApprovalReviewer.
 - **`ProfileFilter`** — `get_wrapper_toolset()` → `FilteredToolset`
   (exact names + `{server}_` prefixes); **always permits `load_capability`**.
 - **Containment ≠ sandbox:** `LocalWorkspace` guards file tools; `shell` is
@@ -48,7 +49,8 @@ permission profiles, judge, skills, MCP toolsets — all harness-native.
 - **Skills:** `Skills` over system dir + workspace `.devin/skills` etc.;
   `missing_directories='skip'`, `duplicate_names='keep_first'`,
   `unknown_names='skip'`; bundled skills seeded on first run; host render
-  via `SkillDefinition.render`.
+  via `SkillDefinition.render`. Show workspace skill source/origin; require
+  explicit user trust before enabling workspace instructions.
 - **Usage/cost:** `UsageLimits` per run; `genai-prices` for nullable cost.
   `data-run-meta` announces `{run_id, model, permission_profile}` at start,
   then adds final `usage`/`cost`; persist the summary separately for reload.
@@ -68,7 +70,9 @@ permission profiles, judge, skills, MCP toolsets — all harness-native.
    approval continuation (capabilities are assembled per run).
 4. **Permissions wiring** — all four profiles verified against `shell` +
    `write_file`; `read-only` ships no shell/write tools; approvals surface
-   as `DeferredToolRequests`.
+   as `DeferredToolRequests`. Integration-test native filters/approval wrappers
+   after `load_capability` and approval continuation, including effective
+   read-only restrictions and MCP policy (spec §Permissions); no custom file tools.
 5. **Judge** — resolution order per above; degrade warns; bad explicit
    judge errors clearly.
 6. **Skills** — both dirs load + dedupe; bundled seed (`ensure_…`) on first

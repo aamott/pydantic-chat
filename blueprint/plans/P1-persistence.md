@@ -39,8 +39,9 @@ version trees, and the server-side conversation history the wire depends on.
 2. **`ConversationStore` impl** — the 5 abstract methods (`read_record`,
    `write_record`, `read_records`, `delete_record`, `read_entry`) pass a
    round-trip test; `branch`/`fork`/`list_conversations`/`delete` work;
-   `conversation_scope` isolates; CAS (`revision`) serializes concurrent
-   saves → `ConversationConflict`.
+   `conversation_scope` isolates. Reuse native `revision`/`ConversationConflict`
+   semantics; implement transactional `expected_revision` checks in the backend
+   write/delete primitives, not a second revision system.
 3. **Workspaces API + UI** — register/remove/rename folders; chat list
    grouped per workspace; switch preserves per-chat drafts + open tabs;
    `missing` flag when the folder is gone (UI badge).

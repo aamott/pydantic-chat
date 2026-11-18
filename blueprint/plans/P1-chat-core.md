@@ -35,7 +35,8 @@ the `data-*` event surfaces.
   `addToolApprovalResponse({id, approved, reason})` →
   `deferred_tool_results` on resubmit;
   `sendAutomaticallyWhen:lastAssistantMessageIsCompleteWithApprovalResponses`
-  closes the loop.
+  closes the loop; approval buttons must not also submit manually. Reuse the
+  adapter's deferred-results handling, not a second approval state machine.
 - **`Chat` registry:** non-reactive `Map<chatId, Chat<UIMessage>>` in the
   chats store; hydrated once per chat; `useChat({chat})` binds it in every
   consumer. `Chat` from `@ai-sdk/react`; `AbstractChat`/transport/`UIMessage`
@@ -46,8 +47,14 @@ the `data-*` event surfaces.
   `data-conversation-saved`.
 - **Durability:** persist partial history on stop, provider failure, and
   disconnect; disconnect is not an explicit user stop. Resume skips settled
-  tool work and warns about unknown side effects; it must not claim exactly-once
-  execution. Test this separately from retry, which starts a new attempt.
+  tool work using native snapshots/effect records. Unknown effects require
+  an explicit user decision before continuation; do not silently rerun them
+  or claim exactly-once execution. Retry starts a new attempt.
+- **Run coordination:** verify competing start/resume requests cannot execute
+  tools concurrently for one chat; reuse native orchestration protection if
+  available, adding only missing app coordination. Version checkout cannot
+  race a live run; continuation must match the selected conversation head.
+  Save-time revision checks alone are not execution locks.
 - **Edit/retry/regenerate** (example: `references/messages.ts`):
   edit → `sendMessage` on a user msg truncates + server cuts history before
   the stored prompt, tail kept as a branch; failed/interrupted turns are
@@ -72,14 +79,18 @@ the `data-*` event surfaces.
    `data-conversation-saved`.
 2. **Transport + registry** — `BackendChatTransport` (bearer, base
    `/api/chat`, `newTurnMessages`, replay-404→null, armed one-shot resume
-   POST via `resumeStream`); `Map<chatId,Chat>`; hydrate once.
+   POST via `resumeStream`); `Map<chatId,Chat>`; hydrate once. No JS execution
+   backend or active-stream buffer is required for persisted-response replay.
 3. **Transcript UI** — text (Streamdown), reasoning, tool cards, approval
    cards; `file:` links everywhere resolve to open-at-line; "Working… Ns"
    indicator only while a live run has no visible parts.
 4. **Approval cards + round-trip** — pending approvals group with
    "Approve all"; Deny opens optional reason → `ToolDenied` steering; arg
    previews render `$ command`, clickable paths, mini diffs for
-   edit/write; remember-me honored.
+   edit/write; native remember-state honored. Test that approvals resolve to
+   server-owned pending calls in this conversation, with stored arguments;
+   forged/stale answers cannot execute another call. Verify adapter enforcement
+   before adding app checks—no parallel signing or approval store.
 5. **Composer + file refs** — per-chat drafts; @-mention + attach pickers;
    `FILE_LINK_INSTRUCTIONS` in every run.
 6. **Edit/retry/regenerate + versions** — semantics per above;
@@ -95,6 +106,8 @@ the `data-*` event surfaces.
    `UsageLimits` breach = clean error.
 9. **Wire contract test** — Node test drives real `AbstractChat`/`Chat`
    against the backend (upstream `ui_roundtrip` pattern): full turn +
-   approval + resume.
+   approval + resume, including duplicate submissions, competing starts, and
+   interrupted tool effects. [SDK approval UI](https://github.com/vercel/ai/blob/ai@7.0.0/content/docs/04-ai-sdk-ui/03-chatbot-tool-usage.mdx)
+   handles client state/resubmission; Python remains the sole executor.
 
 

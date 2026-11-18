@@ -88,7 +88,9 @@ app-#1 layout prototype does not ship.
 ## Stories (in order)
 
 1. **Files API** — read/write/`raw`/tree per the contract above, incl.
-   scoped `path` + frontier dirs + confinement errors.
+   scoped `path` + frontier dirs + confinement errors. Test symlink/parent
+   swaps and concurrent writes; reuse workspace protections where applicable,
+   without assuming a separate realpath check makes later I/O race-safe.
 2. **Tabbed editor shell** — open/preview/pin/close/reorder; dirty dots +
    guards; per-workspace tab sets; `#L<n>` deep-link.
 3. **Monaco integration** — local bundling verified (airplane-mode test);
