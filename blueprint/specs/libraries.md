@@ -5,8 +5,9 @@ Decisions recorded 2026-11-18 with the owner. **⚠ = latest differs from the
 version the owner stated, or was never explicitly approved — confirm before
 locking.**
 
-Policy inherited from app #1: no floating ranges that auto-resolve to
-brand-new releases; versions are pinned exactly and bumped deliberately.
+Use the target versions below and commit lockfiles; upgrades are deliberate.
+JS pins are exact; Python uses the lockfile plus exact pins for the harness
+pair (see Pinning policy). Record Bun/uv versions used by CI.
 
 ## Core (pre-approved by the owner)
 
@@ -92,7 +93,7 @@ them into plans; manifests must not include them until approval lands.
 
 - `lib/api.ts` fetch wrapper (~40 lines) — bearer + error mapping.
 - `app/db/` sqlite layer (~900 lines) — implements `ConversationStore` + app tables.
-- `secrets.json` at `chmod 600` (API keys only; defaults/profiles live in sqlite KV).
+- Permission-restricted `secrets.json` for provider/MCP credentials; non-secret config/defaults/profiles live in sqlite KV.
 - Popovers/pickers — **only if base-ui is rejected**; otherwise migrate.
 - Monaco ↔ app glue (editor wrapper, language map) — thin by design.
 
@@ -106,4 +107,5 @@ them into plans; manifests must not include them until approval lands.
   `pydantic-ai-harness`; `monaco-editor` + `@monaco-editor/react`;
   `vite` + `electron-vite` + `@vitejs/plugin-react`.
 - `rg` is a runtime dep of the file API (gitignore-aware tree) — supplied by
-  `[coder]`; the tree route degrades to `os.walk` without it.
+  `[coder]`. Any traversal fallback must preserve P2-file-viewer's filtering
+  and confinement rules; never return an unfiltered tree.

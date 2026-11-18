@@ -1,71 +1,72 @@
 # App #2 — vision
 
-A local-first AI coding-agent desktop app. Same architecture and capability
-set as `pydantic-chat` (~13k LOC), rebuilt deliberately: every library is
-approved and documented, every boundary is a named contract, and the plan is
-the spec — not a sketch the code later diverges from.
+A local-first AI coding-agent desktop app — the deliberate re-spec of
+`pydantic-chat`. Same architecture and similar scope (~13k LOC), with the
+deliberate cuts below. The plans are the spec; dependency approval status
+lives in `specs/libraries.md`.
 
-**This is a blueprint for a second repository.** These epics describe the
-target app; they are not stories for this repo. When implementation starts,
-fan each story table out into the second repo's `plans/` story files.
+**Ship unit:** the entire `blueprint/` contents, including its `AGENTS.md`,
+copied into the new repo root. Paths below are relative to that root.
+`references/` holds app-#1 examples (not contracts), `specs/` holds library
+API surfaces, and `inventory/` is the behavior checklist.
+Unresolved decisions: `open-questions.md`.
 
 ## Locked decisions
 
-- **Architecture:** Electron shell → React/Vite renderer → Python FastAPI
-  sidecar → `pydantic-ai` + `pydantic-ai-harness`. Chats grouped by
-  workspace folder; backend owns conversation history; renderer sends only
-  the new turn.
-- **Wire:** Vercel AI UI Message Stream —
-  `VercelAIAdapter.dispatch_request(sdk_version=7)` ↔ `Chat` +
-  `DefaultChatTransport`. `conversation_store` forces server-owned history.
+- **Architecture:** Electron → React/Vite renderer → FastAPI sidecar →
+  `pydantic-ai` + `pydantic-ai-harness`. Chats grouped by workspace folder;
+  backend owns history; renderer sends only the new turn.
+- **Wire:** UI Message Stream — `VercelAIAdapter.dispatch_request
+  (sdk_version=7)` ↔ `Chat` + `DefaultChatTransport`; `conversation_store`
+  forces server-owned history.
 - **Agent:** one shared `Agent`; per-run capabilities
-  `[LocalWorkspace, Coder, Planning, Permissions(+ApprovalReviewer), Skills,
-  MCP toolsets]`. No hand-rolled file/shell/planning tools.
-- **Profile filtering:** `AbstractCapability.get_wrapper_toolset()` →
+  `[LocalWorkspace, Coder, Planning, Skills, Permissions(+Reviewer),
+  StepPersistence, ProfileFilter]` + prefixed MCP toolsets. No hand-rolled
+  file/shell/planning tools.
+- **Profile filter:** `AbstractCapability.get_wrapper_toolset()` →
   `FilteredToolset`; always permits `load_capability`.
-- **Persistence:** single `app.db` (Electron userData), stdlib `sqlite3`;
-  hand-rolled `ConversationStore` over per-`ModelMessage` rows (bundled
-  `SqliteConversationStore` evaluated → wrong API, rejected).
-  `SqliteStepStore`/`SqlitePlanStore` for runs and plans.
+- **Persistence:** one `app.db` (userData), stdlib `sqlite3`; hand-rolled
+  `ConversationStore` over per-`ModelMessage` rows; `SqliteStepStore` +
+  `SqlitePlanStore`. Settings split: `secrets.json` (provider/MCP credentials, restricted permissions) + sqlite KV.
 - **Sidecar:** Electron main supervises uvicorn dev+prod; ephemeral
-  `127.0.0.1` port + per-launch bearer token; `/health` exempt.
-- **State:** Zustand for app/UI state + `Chat` registry; streaming state
-  never leaves AI SDK `Chat` objects.
-- **Providers:** OpenAI, Ollama, openai-compatible, MCP. **Deliberate cut:**
-  Anthropic/Google/openai-chat/google-cloud support exists in app #1 and is
-  dropped — the default model must move to an OpenAI model (see
-  P1-settings-registry). This is an owner-approved scope reduction, not an
-  oversight.
-- **Editor stack:** Monaco via `@monaco-editor/react` (bundled locally, no
-  CDN); `DiffEditor` replaces hand-rolled diff code.
-- **Tooling:** Bun + uv, TypeScript 7, ruff, vitest, pyrefly.
-- **Security:** renderer never touches fs; loopback+bearer auth; no secret
-  logging; `.env`/secret denial; gitignore-aware file access; `LocalWorkspace`
-  is containment for file tools — shell safety comes from permissions
-  modes + command lists, not the workspace.
+  `127.0.0.1` port + per-launch bearer; `/health` exempt.
+- **State:** Zustand app/UI state + `Chat` registry; streaming state never
+  leaves `Chat` objects.
+- **Providers:** OpenAI, Ollama, openai-compatible, MCP only.
+- **Editor:** Monaco via `@monaco-editor/react` (bundled locally); its
+  `DiffEditor` replaces hand-rolled diff.
+- **Tooling:** Bun + uv, TS 7, ruff, vitest, pyrefly (hard gate).
+- **Security:** renderer never touches fs; loopback+bearer; no secret
+  logging; `.env` write-protect + `denied_patterns` read-denial;
+  gitignore-aware access; `LocalWorkspace` confines file tools — shell
+  safety comes from `Permissions` + command lists, not the workspace.
 
-## Epics (dependency order)
+## Deliberate cuts (vs app #1 — where "same scope" is narrower)
 
-| Epic | Covers | Depends on |
+Anthropic/Google/openai-chat/google-cloud providers · TerminalView
+(`data-shell` renders in chat tool cards) · CodeMirror + `diff.ts` ·
+focus-refetch drift detection (save-time conflict checks remain) · signed
+installers/frozen sidecar (v1 is unpacked developer distribution).
+
+## Epics (implementation order)
+
+| # | Epic | Depends on |
 |---|---|---|
-| `P1-foundation` | Scaffold, electron-vite 3-target build, sidecar spawn/auth, shared pkg, verify pipeline, library manifest | — |
-| `P1-persistence` | `app.db`, workspaces, chats + versions, `ConversationStore`, secrets + settings KV | foundation |
-| `P1-agent-backend` | Agent factory: providers, models, capabilities, profiles/permissions/judge, skills, MCP runtime | persistence |
-| `P1-chat-core` | Transport, streaming transcript, approval round-trip, stop/resume, `data-*` events, plan/terminal views | agent-backend |
-| `P1-settings-registry` | Settings UI, model catalogs, profiles CRUD, MCP registry + workspace masks | persistence (parallel to chat-core) |
-| `P2-file-viewer` | **Design pending owner review** — Monaco editor, explorer, preview modes | chat-core |
+| 1 | `P1-foundation` — scaffold, sidecar, verify gate | — |
+| 2 | `P1-persistence` — app.db, workspaces, chats, store, settings | 1 |
+| 3 | `P1-agent-backend` — providers, capabilities, profiles, MCP runtime | 2 |
+| 4 | `P1-chat-core` — transport, streaming, approvals, resume, `data-*` | 3 |
+| 5 | `P1-settings-registry` — settings window, catalogs, profiles, MCP UI | 2 (∥ 4) |
+| 6 | `P2-file-viewer` — Monaco editor, tabs, drawer, explorer | 4 |
 
-## Deliberate cuts (vs app #1)
+Dev-velocity rules: land `packages/shared` contracts first in each epic so
+frontend/backend stories parallelize; cite `references/` examples per
+story; `specs/` is read-only API truth — epics point at it, never restate.
 
-- Anthropic/Google/openai-chat/google-cloud providers (+ their SDK extras)
-- TerminalView — `data-shell` lives in chat tool cards instead
-- CodeMirror stack + `diff.ts` — Monaco replaces both
-- `sse-starlette`, `shadcn` — never load-bearing
+## Definition of done
 
-## Definition of done (project-wide)
-
-- `bun run verify` green: tsc strict (no `any`), eslint, vitest, ruff
-  check + format, pyrefly, pytest.
-- One streamed turn end-to-end: text + tool call + approval + resume after
+- `bun run verify` green: tsc strict, eslint, vitest, ruff check + format,
+  pyrefly, pytest.
+- One streamed turn end-to-end: text + tool + approval + resume after a
   sidecar kill.
-- Cross-platform lifecycle verified (Linux/macOS/Windows spawn + kill).
+- Cross-platform spawn/kill verified (Linux/macOS/Windows).

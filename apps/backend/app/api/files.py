@@ -288,6 +288,31 @@ def _resolve_workspace_file(root: Path, raw: str) -> Path:
     return resolved
 
 
+def _resolve_workspace_dir(root: Path, raw: str) -> Path:
+    """``_resolve_workspace_file`` for a directory target (``tree?path=``).
+
+    Same lexical + resolved containment and protected-pattern checks; the
+    resolved path must additionally exist and be a directory.
+
+    Raises:
+        HTTPException: 403 escapes/protected (from the file resolver), 404
+            missing, 400 not a directory.
+    """
+    target = _resolve_workspace_file(root, raw)
+    try:
+        info = target.stat()
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Directory not found"
+        ) from None
+    if not stat.S_ISDIR(info.st_mode):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Path is not a directory",
+        )
+    return target
+
+
 def _stat_regular_file(target: Path) -> os.stat_result:
     """Stat ``target`` as a regular file — no bytes read.
 
@@ -425,11 +450,17 @@ def _write_file_bytes(target: Path, content: str, if_match: str | None) -> bytes
     return data
 
 
-def _rg_files(root: Path) -> list[str]:
-    """``rg --files --sort path`` — gitignore-aware, matching Coder's ``list_files``."""
+def _rg_files(cwd: Path) -> list[str]:
+    """``rg --files --sort path`` — gitignore-aware, matching Coder's ``list_files``.
+
+    Runs inside ``cwd`` (the workspace root, or a scoped subdirectory for
+    ``tree?path=``) so the returned paths are relative to it. ``rg`` still
+    applies the repo's ignore rules from ancestor directories, so a scoped
+    run stays gitignore-aware.
+    """
     result = subprocess.run(
         ["rg", "--files", "--sort", "path"],
-        cwd=root,
+        cwd=cwd,
         capture_output=True,
         text=True,
         timeout=RG_TIMEOUT_SECONDS,
@@ -441,13 +472,15 @@ def _rg_files(root: Path) -> list[str]:
     return result.stdout.splitlines()
 
 
-def _walk_files(root: Path, depth: int, cap: int) -> tuple[list[str], bool]:
+def _walk_files(root: Path, depth: int | None, cap: int) -> tuple[list[str], bool]:
     """Bounded ``os.walk`` fallback for when ``rg`` is unavailable.
 
     Skips hidden entries, ``_SKIP_DIR_NAMES``, and symlinked directories
     (``followlinks=False`` already declines to descend them; this keeps them
-    out of the listing too, as ``rg`` would). Returns root-relative POSIX paths
-    and whether the ``cap`` cut the listing short.
+    out of the listing too, as ``rg`` would). ``depth=None`` lists the whole
+    subtree — matching ``rg --files``, which has no depth limit — and leaves
+    pruning to ``_build_tree``. Returns root-relative POSIX paths and
+    whether the ``cap`` cut the listing short.
     """
     rel_paths: list[str] = []
     truncated = False
@@ -462,7 +495,7 @@ def _walk_files(root: Path, depth: int, cap: int) -> tuple[list[str], bool]:
         rel_dir = Path(dirpath).relative_to(root)
         # Files inside this directory sit one level deeper; once even those
         # exceed ``depth`` nothing below can qualify, so stop descending too.
-        if len(rel_dir.parts) + 1 > depth:
+        if depth is not None and len(rel_dir.parts) + 1 > depth:
             dirnames[:] = []
             continue
         for name in sorted(filenames):
@@ -475,19 +508,42 @@ def _walk_files(root: Path, depth: int, cap: int) -> tuple[list[str], bool]:
     return rel_paths, truncated
 
 
-def _build_tree(root: Path, rel_paths: list[str], depth: int) -> FileTreeNode:
-    """Nest root-relative file paths into a ``FileTreeNode`` dir tree.
+def _build_tree(
+    name: str,
+    path: str,
+    rel_paths: list[str],
+    depth: int,
+    *,
+    frontier_dirs: bool = False,
+) -> FileTreeNode:
+    """Nest listing-root-relative file paths into a ``FileTreeNode`` dir tree.
 
-    Files deeper than ``depth`` levels are pruned; directories appear only as
-    ancestors of listed files (``rg --files`` reports no empty dirs — a known
-    ``list_files`` parity quirk).
+    ``name``/``path`` label the returned root node (``""`` path for the
+    workspace root, the scoped dir's workspace-relative path otherwise).
+    Files deeper than ``depth`` levels are pruned — unless ``frontier_dirs``
+    is set, in which case their ancestor dirs still materialize at the
+    frontier with empty children, so a lazy-loading client knows they exist
+    and can fetch them on expand (scoped ``tree?path=`` requests use this).
+    Directories appear only as ancestors of listed files (``rg --files``
+    reports no empty dirs — a known ``list_files`` parity quirk).
     """
     nested: dict[str, dict | None] = {}
     for rel in rel_paths:
         parts = PurePath(rel).parts
-        if not parts or len(parts) > depth:
+        if not parts:
             continue
         cursor = nested
+        if len(parts) > depth:
+            if not frontier_dirs:
+                continue
+            # Only the leading dirs survive — the frontier dir's children
+            # stay empty, marking it as "exists but not fetched".
+            for part in parts[:depth]:
+                child = cursor.setdefault(part, {})
+                if child is None:  # a file already claims this name
+                    break
+                cursor = child
+            continue
         for part in parts[:-1]:
             child = cursor.setdefault(part, {})
             if child is None:  # a file already claims this name; cannot nest
@@ -495,7 +551,7 @@ def _build_tree(root: Path, rel_paths: list[str], depth: int) -> FileTreeNode:
             cursor = child
         else:
             cursor.setdefault(parts[-1], None)
-    return _to_node(root.name or str(root), "", nested)
+    return _to_node(name, path, nested)
 
 
 def _to_node(name: str, path: str, subtree: dict | None) -> FileTreeNode:
@@ -628,17 +684,33 @@ async def write_file(
 async def file_tree(
     store: StoreDep,
     workspace_id: str = Query(min_length=1),
-    depth: int = Query(default=3, ge=1, le=20),
+    path: str | None = Query(default=None),
+    depth: int | None = Query(default=None, ge=1, le=20),
 ) -> FileTreeOut:
-    """The workspace's directory tree, gitignore-aware when ``rg`` is on PATH."""
+    """The workspace's directory tree, gitignore-aware when ``rg`` is on PATH.
+
+    Omitting ``path`` lists the whole workspace (``depth`` default 3), as
+    before. Passing ``path`` — a workspace-relative directory, ``""`` for the
+    root — scopes the listing to that directory (``depth`` default 1) for the
+    explorer's lazy loading: the returned root node is the directory itself,
+    and files deeper than ``depth`` still surface their ancestor dirs at the
+    frontier with empty children so the client knows they exist. ``path`` is
+    jailed by the same containment as file reads (``_resolve_workspace_file``:
+    lexical + resolved checks, protected patterns) and must be an existing
+    directory.
+    """
     workspace = await _require_workspace(store, workspace_id)
     root = _existing_root(workspace)
+
+    scoped = path is not None
+    scope = _resolve_workspace_dir(root, path) if path else root
+    effective_depth = depth if depth is not None else (1 if scoped else 3)
 
     rel_paths: list[str] | None = None
     truncated = False
     if shutil.which("rg"):
         try:
-            rel_paths = await run_sync(_rg_files, root)
+            rel_paths = await run_sync(_rg_files, scope)
         except (OSError, RuntimeError, subprocess.TimeoutExpired):
             logger.warning(
                 "rg --files failed for workspace %s; falling back to a walk",
@@ -646,10 +718,22 @@ async def file_tree(
                 exc_info=True,
             )
     if rel_paths is None:
+        # Scoped listings walk unbounded — ``_build_tree``'s frontier dirs do
+        # the depth pruning, same as the rg path it falls back from.
         rel_paths, truncated = await run_sync(
-            _walk_files, root, depth, MAX_TREE_ENTRIES
+            _walk_files, scope, None if scoped else effective_depth, MAX_TREE_ENTRIES
         )
     elif len(rel_paths) > MAX_TREE_ENTRIES:
         rel_paths, truncated = rel_paths[:MAX_TREE_ENTRIES], True
 
-    return FileTreeOut(root=_build_tree(root, rel_paths, depth), truncated=truncated)
+    scope_rel = scope.relative_to(root)
+    return FileTreeOut(
+        root=_build_tree(
+            scope.name or str(scope),
+            scope_rel.as_posix() if scope_rel.parts else "",
+            rel_paths,
+            effective_depth,
+            frontier_dirs=scoped,
+        ),
+        truncated=truncated,
+    )

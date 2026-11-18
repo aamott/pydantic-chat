@@ -17,9 +17,10 @@
   instance and all update per chunk.
 - Constructed once per chat, hydrated from persisted messages on first open.
 - `chat.messages` is the transcript; `chat.status` drives composer/streaming
-  UI; `chat.stop()` cancels client-side; `chat.resumeStream()` reattaches to
-  a server-side run (`trigger: 'resume-stream'` → transport's
-  `reconnectToStream`).
+  UI; `chat.stop()` aborts client-side (also call the backend stop endpoint
+  to cancel the run). `chat.resumeStream()` calls transport `reconnectToStream`
+  for persisted-response replay or explicitly armed snapshot continuation;
+  app #2 does not implement live in-flight reattachment.
 - `sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses`
   (a `Chat` init option; helper imported from `ai`) — auto-resubmits when
   the user has answered every approval, closing the deferred-approval loop
@@ -69,7 +70,7 @@ class BackendChatTransport extends DefaultChatTransport<UIMessage> {
 | `data-shell` | shell phases `started`/`output`/`finished` | live tail inside the shell tool card (stream-only) |
 | `data-notice` / `data-resume` | app-emitted notices / resume warnings | inline notice banners |
 | `data-conversation-saved` | adapter-emitted on store saves | transient, ignored |
-| `data-run-meta` | usage/cost/model/run_id | hidden from transcript; feeds usage UI |
+| `data-run-meta` | `{run_id, model, permission_profile}`, final update adds `usage`/nullable `cost` | hidden from transcript; feeds run/usage UI |
 | `data-*` generally | stream-only | **optional on reload** — parsers must not require them |
 
 `lib/dataParts.ts` validates every `data-*` part at the boundary; unknown/

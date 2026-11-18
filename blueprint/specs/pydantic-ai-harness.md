@@ -125,7 +125,9 @@ Capabilities emit `CapabilityEvent`s via `ctx.emit`; `agent.on_event(*types)`
 receives them. Our events bridge (`agent/events.py`) maps:
 `Plan*Event` subclasses → `data-plan`; `CommandStartedEvent` /
 `CommandOutputEvent` / `CommandFinishedEvent` (`shell/_events`) → `data-shell`;
-plus `data-run-meta` (usage/cost/model/run_id) emitted from `Hooks`. The
+plus app-defined `data-run-meta`: `Hooks` emits `{run_id, model,
+permission_profile}` at start; completion adds `usage` and nullable `cost`.
+The
 adapter itself emits a transient `data-conversation-saved` chunk on store
 saves. All `data-*` parts are stream-only — not persisted — so consumers
 treat them as optional on reload.

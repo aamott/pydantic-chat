@@ -470,6 +470,175 @@ def test_tree_honors_depth(client):
     assert lib is None or lib["children"] == []
 
 
+# --------------------------------------------------------------------- #
+# GET /api/files/tree?path= — scoped one-level listings (lazy explorer)   #
+# --------------------------------------------------------------------- #
+
+
+def test_tree_scoped_returns_one_level(client):
+    test_client, project = client
+    workspace_id = _workspace_id(test_client, project)
+    response = _get(
+        test_client,
+        "/api/files/tree",
+        workspace_id=workspace_id,
+        path="src",
+    )
+    assert response.status_code == 200
+    body = response.json()
+    root = body["root"]
+    assert root["type"] == "dir"
+    assert root["name"] == "src"
+    assert root["path"] == "src"
+    by_name = {child["name"]: child for child in root["children"]}
+    # Direct files are listed; deeper content surfaces only as a frontier
+    # dir with no children — the explorer fetches it on expand.
+    assert by_name["main.py"]["type"] == "file"
+    assert by_name["secrets.txt"]["type"] == "file"
+    assert by_name["lib"]["type"] == "dir"
+    assert by_name["lib"]["children"] == []
+    assert "util.ts" not in by_name
+
+
+def test_tree_scoped_empty_path_scopes_to_root(client):
+    test_client, project = client
+    workspace_id = _workspace_id(test_client, project)
+    body = _get(
+        test_client, "/api/files/tree", workspace_id=workspace_id, path=""
+    ).json()
+    root = body["root"]
+    assert root["type"] == "dir" and root["path"] == ""
+    by_name = {child["name"]: child for child in root["children"]}
+    # One level: top-level files plus the src frontier dir.
+    assert by_name["README.md"]["type"] == "file"
+    assert by_name["src"]["type"] == "dir"
+    assert by_name["src"]["children"] == []
+    # Hidden entries are never listed.
+    assert ".git" not in by_name
+    assert ".env" not in by_name
+    assert ".hidden" not in by_name
+
+
+def test_tree_scoped_honors_depth(client):
+    test_client, project = client
+    workspace_id = _workspace_id(test_client, project)
+    body = _get(
+        test_client,
+        "/api/files/tree",
+        workspace_id=workspace_id,
+        path="",
+        depth=2,
+    ).json()
+    src = next(c for c in body["root"]["children"] if c["name"] == "src")
+    src_names = {c["name"] for c in src["children"]}
+    # depth=2 lists src's files; util.ts (level 3) leaves only the frontier
+    # dir behind.
+    assert "main.py" in src_names
+    lib = next(c for c in src["children"] if c["name"] == "lib")
+    assert lib["children"] == []
+    deep = _get(
+        test_client,
+        "/api/files/tree",
+        workspace_id=workspace_id,
+        path="src",
+        depth=2,
+    ).json()
+    lib = next(c for c in deep["root"]["children"] if c["name"] == "lib")
+    assert lib["children"][0]["path"] == "src/lib/util.ts"
+
+
+def test_tree_scoped_rejects_paths_outside_root(client):
+    test_client, project = client
+    outside_dir = project.parent / "outside_dir"
+    outside_dir.mkdir(exist_ok=True)
+    (outside_dir / "evil.txt").write_text("nope\n")
+    workspace_id = _workspace_id(test_client, project)
+    for bad in ("../outside_dir", str(outside_dir), "src/../../outside_dir"):
+        response = _get(
+            test_client, "/api/files/tree", workspace_id=workspace_id, path=bad
+        )
+        assert response.status_code == 403, bad
+
+
+def test_tree_scoped_rejects_symlink_escape(client):
+    test_client, project = client
+    outside_dir = project.parent / "outside_dir"
+    outside_dir.mkdir(exist_ok=True)
+    (outside_dir / "evil.txt").write_text("nope\n")
+    os.symlink(outside_dir, project / "linkdir")
+    workspace_id = _workspace_id(test_client, project)
+    # The lexical path sits inside the root but resolves outside it.
+    assert (
+        _get(
+            test_client, "/api/files/tree", workspace_id=workspace_id, path="linkdir"
+        ).status_code
+        == 403
+    )
+
+
+def test_tree_scoped_rejects_protected_dirs(client):
+    """The dir itself is pattern-checked — ``.git`` denies as a target too."""
+    test_client, project = client
+    workspace_id = _workspace_id(test_client, project)
+    assert (
+        _get(
+            test_client, "/api/files/tree", workspace_id=workspace_id, path=".git"
+        ).status_code
+        == 403
+    )
+
+
+def test_tree_scoped_missing_and_not_a_dir(client):
+    test_client, project = client
+    workspace_id = _workspace_id(test_client, project)
+    assert (
+        _get(
+            test_client, "/api/files/tree", workspace_id=workspace_id, path="gone"
+        ).status_code
+        == 404
+    )
+    assert (
+        _get(
+            test_client,
+            "/api/files/tree",
+            workspace_id=workspace_id,
+            path="README.md",
+        ).status_code
+        == 400
+    )
+
+
+@pytest.mark.skipif(not HAS_RG, reason="gitignore filtering needs rg on PATH")
+def test_tree_scoped_respects_gitignore(client):
+    """A scoped rg run keeps the repo's ignore rules from ancestor dirs."""
+    test_client, project = client
+    workspace_id = _workspace_id(test_client, project)
+    body = _get(
+        test_client, "/api/files/tree", workspace_id=workspace_id, path=""
+    ).json()
+    names = {child["name"] for child in body["root"]["children"]}
+    assert "ignored.txt" not in names
+    assert "ignored_dir" not in names
+
+
+def test_tree_scoped_walk_fallback_lists_frontier_dirs(client, monkeypatch):
+    """With rg unavailable, the walk still surfaces subdirs at the frontier —
+    it lists the scoped subtree unbounded and ``_build_tree`` prunes."""
+    monkeypatch.setattr(shutil, "which", lambda *args, **kwargs: None)
+    test_client, project = client
+    workspace_id = _workspace_id(test_client, project)
+    body = _get(
+        test_client,
+        "/api/files/tree",
+        workspace_id=workspace_id,
+        path="src",
+    ).json()
+    by_name = {child["name"]: child for child in body["root"]["children"]}
+    assert by_name["main.py"]["type"] == "file"
+    assert by_name["lib"]["type"] == "dir"
+    assert by_name["lib"]["children"] == []
+
+
 def test_tree_and_read_missing_workspace_path(client):
     test_client, project = client
     workspace_id = _workspace_id(test_client, project)

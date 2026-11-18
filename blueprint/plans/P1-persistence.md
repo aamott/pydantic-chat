@@ -1,54 +1,54 @@
 # P1 — Persistence, workspaces & chats
 
-**Status:** spec'd · **Depends on:** P1-foundation
+**Status:** todo · **Order:** 2nd · **Depends on:** P1-foundation
 
 ## Goal
 
 Durable app state: one `app.db`, workspace registration, chat records with
-version trees, and the server-side conversation history the wire protocol
-depends on.
+version trees, and the server-side conversation history the wire depends on.
 
 ## Architecture decisions
 
-- **One database** at Electron `userData/app.db`, opened only by the backend
-  (renderer never gets a path). Stdlib `sqlite3`, WAL mode, short-lived
-  connections or a single guarded connection — copy whichever the harness's
-  `SqliteStepStore` pattern supports best.
-- **`ConversationStore` implementation:** hand-rolled over our own
-  per-`ModelMessage` rows — that schema is what makes lossless resume and
-  branch/fork cheap. **Evaluated and rejected** the bundled
-  `pydantic_ai_harness.step_persistence.conversations.SqliteConversationStore`:
-  it's a session-browser store (`save(summary, messages)`/`get`/`listing`),
-  not the ABC — it has no `read_record`/`read_entry` methods and cannot be
-  passed as `conversation_store=`. (Borrow its CAS/media-externalization/
-  search-index ideas where useful.) Working example of the ABC over
-  per-`ModelMessage` rows: `references/conversation-store.py`.
-- **Version tree:** prompt edit/retry/regenerate create sibling versions via
-  `ConversationStore.branch`/`fork`; the chat record points at a head
-  version. Version switching never rewrites history rows.
-- **`conversation_scope = workspace_id`** — history is isolated per
-  workspace folder; a chat cannot leak context across workspaces.
-- **Workspaces** are registered folder paths (add/remove/rename), each with
-  its own settings overrides and MCP enable mask.
-- **Settings storage is a split** (verified): `secrets.json` (`chmod 600`,
-  userData) holds **API keys only** — separate from `app.db` so the db can
-  be deleted without losing keys; global defaults + custom profiles live in
-  the sqlite `settings` KV table. Secrets never logged, never returned
-  unmasked.
-- **Nothing writes into workspace folders** — db, settings, logs, plans all
-  live under userData.
+- **One database** at `userData/app.db`, backend-only access (renderer never
+  gets a path). Stdlib `sqlite3`, WAL. Conversation, step, and plan stores
+  share this file, not table ownership: app migrations own app tables;
+  harness stores own theirs. Test initialization and writes together.
+- **Hand-rolled `ConversationStore`** over per-`ModelMessage` rows — that
+  schema makes lossless resume and branch/fork cheap. (Bundled
+  `SqliteConversationStore` evaluated → session-browser API, can't feed
+  `conversation_store=`; rejected.) Working example:
+  `references/conversation-store.py`. ABC contract:
+  `specs/pydantic-ai.md` §ConversationStore.
+- **Version tree:** edit/retry/regenerate → `branch`/`fork` siblings; the
+  chat row points at a head version; switching never rewrites rows.
+- **`conversation_scope = workspace_id`** — history isolates per workspace;
+  mismatch → 404.
+- **Workspaces:** registered folder paths; each carries `permission_profile`
+  + `mcp_overrides` (no model defaults — see P1-settings-registry).
+- **Settings split:** permission-restricted `secrets.json` (provider keys
+  and MCP env/header credentials) + sqlite `settings` KV (non-secret config,
+  defaults, custom profiles). Secrets never logged or returned unmasked.
+- **No app state in workspace folders** — db, secrets, logs all live under
+  userData. User-requested editor/agent file changes are separate.
 
-## Stories
+## Stories (in order)
 
-| Story | Acceptance criteria |
-|---|---|
-| Store decision + schema | ✅ decision made — hand-rolled `ConversationStore` over per-`ModelMessage` rows (bundled `SqliteConversationStore` is a session-browser, not the ABC — see decision above); story is now: schema + migrations path (schema version table) |
-| `app.db` + app tables | Workspaces, chats, versions, settings-KV tables; WAL; created lazily on first boot; all access behind a typed `db/` module (no SQL outside it) |
-| Workspaces API + UI | Register/remove/rename folders; chat list grouped per workspace; workspace switch preserves per-chat drafts + open-file refs; per-workspace settings overrides stored |
-| Chats API | CRUD, titles, per-chat overrides (model/thinking/profile/judge), version list + head pointer; delete cascades to conversation rows; auto-title from first user prompt while title is "New chat" (~40 chars) |
-| ConversationStore impl | `load`/`save`/`branch`/`fork`/`list_conversations` + entry ops pass a round-trip test; `conversation_scope` isolates workspaces; concurrent saves serialize correctly |
-| Settings storage | `secrets.json` chmod 600 for keys + sqlite KV for defaults/profiles; masked read API; validated writes; secrets never in logs or `/api` responses unmasked; workspace rows flag `missing` when the folder is gone (UI badge downstream) |
+1. **Schema + migrations** — workspaces/chats/versions/settings-KV tables;
+   WAL; `schema_version` table; lazy create on first boot; all SQL behind a
+   typed `db/` module.
+2. **`ConversationStore` impl** — the 5 abstract methods (`read_record`,
+   `write_record`, `read_records`, `delete_record`, `read_entry`) pass a
+   round-trip test; `branch`/`fork`/`list_conversations`/`delete` work;
+   `conversation_scope` isolates; CAS (`revision`) serializes concurrent
+   saves → `ConversationConflict`.
+3. **Workspaces API + UI** — register/remove/rename folders; chat list
+   grouped per workspace; switch preserves per-chat drafts + open tabs;
+   `missing` flag when the folder is gone (UI badge).
+4. **Chats API** — CRUD, titles, per-chat overrides (model/thinking/
+   profile/judge), version list + head pointer; auto-title from first user
+   prompt while `"New chat"` (~40 chars); delete cascades.
+5. **Settings storage** — restricted `secrets.json` + sqlite KV; validated
+   storage and masking helpers for the settings epic's API. POSIX `0600`,
+   equivalent owner-only restrictions on Windows; no unmasked reads/logs.
 
-## Non-goals
 
-Streaming, agent behavior, file APIs, MCP runtime — later epics.

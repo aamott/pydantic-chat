@@ -1,59 +1,54 @@
 # Blueprint — app #2 specification
 
-The deliberate re-spec of `pydantic-chat` for a second repository.
-Same architecture, same scope (~13k LOC), better-organized plans, and every
-library accounted for.
+The deliberate re-spec of `pydantic-chat` for a second repository. Same
+architecture, similar scope (~13k LOC), with explicit cuts and approved
+library choices. Pending approvals are tracked in `specs/libraries.md`.
+
+**Ship unit for the dev team:** the entire contents of this folder,
+including its `AGENTS.md`, copied into the new repository root. Do not ship
+the predecessor's root `AGENTS.md` or `plans/` instead. `plans/`, `specs/`,
+`inventory/`, and `references/` all travel together; app-#1 code outside
+this package is not required.
 
 ## Contents
 
-- `plans/app-vision.md` — locked decisions + epic map (the spec starts here)
-- `plans/P1-*.md`, `P2-*.md` — epics with architecture decisions + story
-  tables (acceptance criteria inline)
-- `specs/libraries.md` — approved dependency manifest; ⚠ marks items needing
-  owner confirmation
+- `AGENTS.md` — root rules file for the new repo
+- `plans/app-vision.md` — locked decisions + ordered epic map (start here)
+- `plans/P1-*.md`, `P2-*.md` — epics: architecture decisions + ordered
+  numbered stories (acceptance criteria inline)
+- `plans/open-questions.md` — **every unresolved decision in one place**
+- `specs/libraries.md` — approved dependency manifest; incl. the
+  pending-external-approval tracker
 - `specs/pydantic-ai.md`, `specs/pydantic-ai-harness.md`,
   `specs/vercel-ai-sdk.md` — the exact API surfaces used, verified against
-  installed versions
+  installed versions (read-only API truth — epics cite, never restate)
 - `specs/vendor/` — upstream docs vendored so implementors don't google:
-  the pydantic-ai/-harness **skill docs** (curated agent-facing bundles)
-  plus `monaco/` (the only dependency with no docs in-repo or in-package).
-  Everything else arrives with `uv sync`/`bun install` — specs point at
-  the in-package doc locations instead of duplicating them. Refresh the
-  vendored files on version bumps
-- `inventory/current-app.md` — what app #1 actually does, incl. coupling
-  that must survive the rebuild
+  the pydantic-ai/-harness **skill docs** plus `monaco/` (the only
+  dependency with no docs in-repo or in-package). Everything else arrives
+  with `uv sync`/`bun install` — specs point at the in-package doc
+  locations instead of duplicating them. Refresh vendored files on bumps
+- `inventory/current-app.md` — what app #1 actually does; file paths are
+  app-#1 provenance, load-bearing code is vendored under `references/`
 - `references/` — working implementations + configs copied from the
-  predecessor app: **examples, not contracts** — for library-interop code
-  that's expensive to re-derive (transport, adapter wiring, capability
-  assembly, store, sidecar, toolchain configs). Includes `research/` — two
-  verified wire-contract notes. See `references/README.md`
+  predecessor: **examples, not contracts** — for library-interop code
+  that's expensive to re-derive. Includes `research/` — verified
+  wire-contract notes. See `references/README.md`
 
 ## Status
 
-- ✅ Specs, inventory, and all epics: written
-- ✅ Three-way review pass applied (subagent-verified): every API claim
-  checked against installed source, every behavior checked against app
-  code, all 33 version pins checked against npm/PyPI — all current
-- ✅ File viewer design locked + layout prototyped in app #1 (uncommitted)
-- ✅ `electron-vite@6.0.0`, `pyrefly` hard gate: approved
-- ⏳ `@base-ui/react@1.9.0` — owner-approved pending company sign-off;
-  tracked in `specs/libraries.md` → "Pending external approval"
-- ⚠ Default model for app #2 (Anthropic cut → needs an OpenAI default;
-  `openai:gpt-5.5` specced pending confirmation)
-- ⚠ `@vitejs/plugin-rsc` — confirm actually needed during scaffold; drop if not
-- ⚠ Per-chat shell — owner decision recorded; mechanism is new work
-  (upstream has per-run toolsets only), spec'd in P1-agent-backend
+Implementation has not started. Epics and stories are ordered; drawer UX
+is locked. Remaining approval and implementation decisions are tracked in
+`plans/open-questions.md`.
 
 ## How implementation consumes this
 
-1. Copy `plans/` into the new repo; fan story tables into `pending-*` story
-   files per the planning system.
-2. Seed `docs/libraries.md` from `specs/libraries.md`; keep it in sync with
-   manifests forever after.
-3. Keep `specs/` as the API reference — verify pinned versions first
-   (⚠ notes), then treat the documented signatures as the contract.
-4. `inventory/` is the regression checklist: every behavior listed there
-   either ships in app #2 or is an explicit cut.
-5. `references/` travels with the blueprint — cite it as "a working
-   example," never "port this file"; it predates app #2's deliberate
-   differences.
+1. Copy this folder's contents into the new repo root. Paths such as
+   `plans/`, `specs/`, and `references/` then resolve from that root.
+2. Start at `plans/app-vision.md`; work epics in order; fan stories into
+   `pending-*` files per the planning system.
+3. Keep `specs/libraries.md` synchronized with manifests; do not maintain
+   a second copy of the dependency manifest.
+4. `plans/` defines target behavior; `specs/` defines the library surface
+   (check against installed pins as needed). Both outrank `references/`,
+   which are examples, not files to port. `inventory/` is the regression
+   checklist: every behavior ships or is an explicit cut in app-vision.

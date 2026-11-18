@@ -1,16 +1,19 @@
 /**
- * Workspace file tree for the right panel's Explorer tab.
+ * Workspace file tree for the right panel's Explorer tab — lazy-loaded:
+ * only one directory level crosses the wire per fetch.
  *
- * Fetches `GET /api/files/tree?workspace_id&depth=3` (already nested —
- * expansion is purely client-side, no per-directory fetches) and renders an
- * expandable tree. File clicks route through `useUiStore.openFile`, which
- * switches the panel to the File tab hosting `FileViewer`.
+ * The root level is fetched on mount/workspace change
+ * (`GET /api/files/tree?workspace_id&path=&depth=1`); expanding a dir
+ * fetches `path=<dir>` and caches the result in `dirs` for the session —
+ * collapsing never drops the cache, so re-expanding is free. The refresh
+ * button clears the cache and re-fetches the root plus every dir in
+ * `expanded`, preserving the expansion state.
  *
  * Path form: node `path` is workspace-relative POSIX (`""` on the root),
  * which is exactly what `GET /api/files?path=` and `ui.filePath` expect, so
  * it is passed through unchanged — no absolute-path resolution needed.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   ChevronDown,
   ChevronRight,
@@ -43,7 +46,10 @@ interface FileTreeNode {
   /** Workspace-relative POSIX path; `""` on the root node. */
   path: string
   type: 'file' | 'dir'
-  /** Set on directories (possibly empty), absent/`null` on files. */
+  /**
+   * Set on directories — empty at the listing frontier (the dir exists but
+   * its children were not fetched) — absent/`null` on files.
+   */
   children?: FileTreeNode[] | null
 }
 
@@ -53,13 +59,22 @@ interface FileTreeResponse {
   truncated: boolean
 }
 
+/** One directory's fetch state, cached by workspace-relative dir path. */
+interface DirListing {
+  /** Fetched children; `null` until the first fetch resolves. */
+  children: FileTreeNode[] | null
+  loading: boolean
+  /** Last fetch's error, if any — retried on the next expand. */
+  error: string | null
+}
+
 type ExplorerState =
   | { status: 'loading' }
-  | { status: 'ready'; root: FileTreeNode; truncated: boolean }
+  | { status: 'ready'; root: FileTreeNode }
   | { status: 'error'; message: string }
 
-/** Server-side depth requested for the tree (backend default is also 3). */
-const TREE_DEPTH = 3
+/** Depth requested per scoped fetch — the explorer lazily loads one level. */
+const LISTING_DEPTH = 1
 
 /* ------------------------------------------------------------------ */
 /* File icons                                                           */
@@ -168,6 +183,21 @@ async function describeError(res: Response): Promise<string> {
   return detail ?? `Request failed (HTTP ${res.status}).`
 }
 
+/** One level of a directory listing via the scoped tree endpoint. */
+async function fetchTree(
+  workspaceId: string,
+  dirPath: string,
+): Promise<FileTreeResponse> {
+  const params = new URLSearchParams({
+    workspace_id: workspaceId,
+    path: dirPath,
+    depth: String(LISTING_DEPTH),
+  })
+  const res = await apiFetch(`/api/files/tree?${params}`)
+  if (!res.ok) throw new Error(await describeError(res))
+  return (await res.json()) as FileTreeResponse
+}
+
 /* ------------------------------------------------------------------ */
 /* Component                                                            */
 /* ------------------------------------------------------------------ */
@@ -183,48 +213,97 @@ export function FileExplorer({
   const openFile = useUiStore((s) => s.openFile)
   const activePath = useUiStore((s) => s.filePath)
   const [state, setState] = useState<ExplorerState>({ status: 'loading' })
-  /** Bumped by the toolbar refresh button → re-fetch. */
+  /** Bumped by the toolbar refresh button → cache clear + re-fetch. */
   const [refreshKey, setRefreshKey] = useState(0)
   /** Workspace-relative paths of expanded dirs; survives refreshes. */
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
+  /** Per-dir listings keyed by workspace-relative dir path (`""` = root). */
+  const [dirs, setDirs] = useState<ReadonlyMap<string, DirListing>>(new Map())
+  /** OR of every listing's `truncated` flag — any capped dir warns. */
+  const [truncated, setTruncated] = useState(false)
+  /** Session token — stale fetches (pre-switch/pre-refresh) discard results. */
+  const sessionRef = useRef(0)
 
-  /* Fetch the (already nested) tree whenever the workspace or refresh key
-   * changes. The cancelled flag avoids setting state after unmount or a
-   * workspace switch. */
+  /* Merge a patch into one dir's cached listing. */
+  const updateDir = (dirPath: string, patch: Partial<DirListing>): void => {
+    setDirs((prev) => {
+      const next = new Map(prev)
+      next.set(dirPath, {
+        children: null,
+        loading: false,
+        error: null,
+        ...prev.get(dirPath),
+        ...patch,
+      })
+      return next
+    })
+  }
+
+  /* Fetch one dir's children into the cache. Loading and error states are
+   * recorded on the entry so the row can render them; results landing after
+   * a workspace switch/refresh are discarded via the session token. */
+  const loadDir = async (dirPath: string): Promise<void> => {
+    if (!workspaceId) return
+    const session = sessionRef.current
+    updateDir(dirPath, { loading: true, error: null })
+    try {
+      const tree = await fetchTree(workspaceId, dirPath)
+      if (session !== sessionRef.current) return
+      updateDir(dirPath, {
+        children: tree.root.children ?? [],
+        loading: false,
+        error: null,
+      })
+      if (tree.truncated) setTruncated(true)
+    } catch (err: unknown) {
+      if (session !== sessionRef.current) return
+      updateDir(dirPath, {
+        loading: false,
+        error: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
+
+  /* Fetch the root listing whenever the workspace or refresh key changes.
+   * A refresh clears the cache first, then re-fetches every dir in
+   * `expanded` so the visible tree stays expanded with fresh children.
+   * (`expanded`/`loadDir` are read at fire time — the latest render's
+   * values, which is exactly "the dirs expanded when refresh fired".) */
   useEffect(() => {
     if (!workspaceId) return
-    let cancelled = false
+    sessionRef.current += 1
+    const session = sessionRef.current
     setState({ status: 'loading' })
+    setTruncated(false)
+    setDirs(new Map())
 
-    const load = async (): Promise<void> => {
-      const params = new URLSearchParams({
-        workspace_id: workspaceId,
-        depth: String(TREE_DEPTH),
+    fetchTree(workspaceId, '')
+      .then((tree) => {
+        if (session !== sessionRef.current) return
+        setDirs(
+          new Map([
+            [
+              '',
+              {
+                children: tree.root.children ?? [],
+                loading: false,
+                error: null,
+              },
+            ],
+          ]),
+        )
+        if (tree.truncated) setTruncated(true)
+        setState({ status: 'ready', root: tree.root })
+        for (const dirPath of expanded) void loadDir(dirPath)
       })
-      const res = await apiFetch(`/api/files/tree?${params}`)
-      if (!res.ok) throw new Error(await describeError(res))
-      const tree = (await res.json()) as FileTreeResponse
-      if (!cancelled) {
-        setState({
-          status: 'ready',
-          root: tree.root,
-          truncated: tree.truncated,
-        })
-      }
-    }
-
-    load().catch((err: unknown) => {
-      if (!cancelled) {
+      .catch((err: unknown) => {
+        if (session !== sessionRef.current) return
         setState({
           status: 'error',
           message: err instanceof Error ? err.message : String(err),
         })
-      }
-    })
-
-    return () => {
-      cancelled = true
-    }
+      })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceId, refreshKey])
 
   /* Null workspace → empty state, no fetch (mirrors FileViewer). */
@@ -235,6 +314,13 @@ export function FileExplorer({
   }
 
   const toggleDir = (path: string): void => {
+    /* Fetch on expand only: a cached listing (even a collapsed one) is
+     * reused — collapsing never drops the cache — while an errored or
+     * never-fetched dir fetches on the next expand. */
+    const listing = dirs.get(path)
+    if (!expanded.has(path) && (!listing || listing.error !== null)) {
+      void loadDir(path)
+    }
     setExpanded((prev) => {
       const next = new Set(prev)
       if (next.has(path)) next.delete(path)
@@ -244,7 +330,7 @@ export function FileExplorer({
   }
 
   const root = state.status === 'ready' ? state.root : null
-  const children = root?.children ?? []
+  const children = dirs.get('')?.children ?? []
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -261,7 +347,7 @@ export function FileExplorer({
         ) : (
           <span className="flex-1 text-xs text-faint">Explorer</span>
         )}
-        {state.status === 'ready' && state.truncated && (
+        {state.status === 'ready' && truncated && (
           <span
             className="flex shrink-0 items-center gap-1 text-xs text-warning"
             title="File listing hit the server cap — the tree is a prefix, not the whole workspace."
@@ -302,6 +388,7 @@ export function FileExplorer({
                   node={node}
                   depth={0}
                   expanded={expanded}
+                  dirs={dirs}
                   activePath={activePath}
                   onToggleDir={toggleDir}
                   onOpenFile={openFile}
@@ -323,6 +410,8 @@ interface TreeRowProps {
   /** Indent level; root's children start at 0. */
   readonly depth: number
   readonly expanded: ReadonlySet<string>
+  /** Per-dir listings cache — an expanded dir renders from its own entry. */
+  readonly dirs: ReadonlyMap<string, DirListing>
   /** Currently viewed file (highlighted), or null. */
   readonly activePath: string | null
   readonly onToggleDir: (path: string) => void
@@ -330,13 +419,15 @@ interface TreeRowProps {
 }
 
 /**
- * One tree row. Directory children render lazily — the subtree data is
- * already in memory, so "lazy" here means "not mounted until expanded".
+ * One tree row. Expanded dirs render their cached listing — a spinner row
+ * while fetching, an error row on failure, the children otherwise. An
+ * empty dir expands to nothing (same as the pre-lazy empty-dir handling).
  */
 function TreeRow({
   node,
   depth,
   expanded,
+  dirs,
   activePath,
   onToggleDir,
   onOpenFile,
@@ -347,6 +438,7 @@ function TreeRow({
   const dirIcon = isExpanded ? FolderOpen : Folder
   const Icon = isDir ? dirIcon : fileIcon(node.name)
   const Chevron = isExpanded ? ChevronDown : ChevronRight
+  const listing = isExpanded ? dirs.get(node.path) : undefined
 
   const activate = (): void => {
     if (isDir) onToggleDir(node.path)
@@ -393,16 +485,28 @@ function TreeRow({
         />
         <span className="truncate">{node.name}</span>
       </div>
-      {isDir && isExpanded && node.children && node.children.length > 0 && (
+      {isDir && isExpanded && (
         /* role="group" is the ARIA-prescribed wrapper for a treeitem's
          * children — the suggested native elements don't apply. */
         <div role="group" /* NOSONAR */>
-          {node.children.map((child) => (
+          {listing?.loading && (
+            <TreeNote depth={depth + 1}>
+              <LoaderCircle className="h-3 w-3 animate-spin" />
+              Loading…
+            </TreeNote>
+          )}
+          {listing?.error !== null && listing?.error !== undefined && (
+            <TreeNote depth={depth + 1} tone="error">
+              {listing.error}
+            </TreeNote>
+          )}
+          {listing?.children?.map((child) => (
             <TreeRow
               key={child.path}
               node={child}
               depth={depth + 1}
               expanded={expanded}
+              dirs={dirs}
               activePath={activePath}
               onToggleDir={onToggleDir}
               onOpenFile={onOpenFile}
@@ -411,5 +515,28 @@ function TreeRow({
         </div>
       )}
     </>
+  )
+}
+
+/** Indented status line inside an expanded dir (loading/error rows). */
+function TreeNote({
+  depth,
+  tone = 'muted',
+  children,
+}: Readonly<{
+  depth: number
+  tone?: 'muted' | 'error'
+  children: React.ReactNode
+}>): React.JSX.Element {
+  return (
+    <div
+      /* +24px clears the chevron + icon slots so text aligns with names. */
+      style={{ paddingLeft: `${depth * 12 + 24}px` }}
+      className={`flex items-center gap-1.5 py-0.5 pr-2 text-xs select-none ${
+        tone === 'error' ? 'text-danger' : 'text-faint'
+      }`}
+    >
+      {children}
+    </div>
   )
 }
