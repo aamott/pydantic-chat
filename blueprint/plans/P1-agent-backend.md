@@ -21,6 +21,7 @@ harness-native, no hand-rolled tools.
 - **Capability list per run** (order fixed):
   `[LocalWorkspace(root, read_only=?), Coder(sub_agents=False), Planning(SqlitePlanStore), Skills(...), Permissions(mode), ApprovalReviewer(?), StepPersistence(SqliteStepStore), ProfileFilter]`
   plus `toolsets=[prefixed MCP toolsets]` honoring the workspace enable mask.
+  Working example: `references/agent-factory.py`.
 - **`ProfileFilter`** — `AbstractCapability` whose `get_wrapper_toolset`
   returns `FilteredToolset` over the assembled toolset matching profile
   allow/deny (exact names + `{server}_` MCP prefixes); **always permits
@@ -55,7 +56,8 @@ harness-native, no hand-rolled tools.
   cost math — surfaced through `data-run-meta`.
 - **Events bridge:** `agent.on_event` → `CustomEvent`s → `data-plan`/
   `data-shell`/`data-run-meta`. One bridge module; `data-*` parts are
-  stream-only (never persisted).
+  stream-only (never persisted). Working example:
+  `references/events-bridge.py`.
 
 ## Stories
 

@@ -10,7 +10,8 @@ transcript, approval round-trip, stop/resume, edit/retry/regenerate, and the
 
 ## Architecture decisions
 
-- **Endpoint contract:**
+- **Endpoint contract** (working examples: `references/chat-api.py`,
+  `resume-api.py`):
   - `POST /api/chat` → `dispatch_request(sdk_version=7, conversation_store
     (forces server history), conversation_scope, deferred_tool_results,
     cancellation_token, workspace, on_complete, on_cancel)`.
@@ -28,9 +29,11 @@ transcript, approval round-trip, stop/resume, edit/retry/regenerate, and the
 - **`Chat` registry pattern:** non-reactive `Map<chatId, Chat<UIMessage>>`
   in the chats store; hydrated once per chat from persisted messages;
   `useChat({chat})` binds it in transcript, terminal, and plan consumers.
+  Working examples: `references/chats-store.ts`, `transport.ts`.
 - **`data-*` parts are stream-only** — validated at the boundary
-  (`dataParts.ts`-equivalent), unknown parts ignored, never thrown; plan
-  snapshots keep only the latest per message; nothing `data-*` persists.
+  (working example: `references/data-parts.ts`), unknown parts ignored,
+  never thrown; plan snapshots keep only the latest per message; nothing
+  `data-*` persists.
   Full set: `data-plan`, `data-shell`, `data-run-meta`, `data-notice`
   (user notices), `data-resume` (resume side-effect warnings),
   `data-conversation-saved` (adapter-emitted).
@@ -40,7 +43,7 @@ transcript, approval round-trip, stop/resume, edit/retry/regenerate, and the
 - **`file:` link + @-mention cluster** (cross-cutting):
   - Backend injects a `FILE_LINK_INSTRUCTIONS` capability so the agent
     emits `[x.ts](file:src/x.ts#L12)` links.
-  - Renderer grammar (`fileRefs.ts`-equivalent) parses `file:path`,
+  - Renderer grammar (a `fileRefs` module) parses `file:path`,
     `file:path:LINE`, `file:path#Ln`, `file:///abs`; the markdown pipeline
     adds `file` to sanitize protocols and intercepts clicks → open in the
     right panel at the line (do NOT let them navigate as URLs).
@@ -49,8 +52,19 @@ transcript, approval round-trip, stop/resume, edit/retry/regenerate, and the
   - Composer pickers: @-mention file search + attachment button feeding
     `file:` refs into the outgoing turn.
 - **Edit/retry/regenerate** use `trigger` + `messageId` → backend version
-  operations (branch from the version's parent, retry in place, or sibling
-  regenerate) — semantics copied 1:1 from app #1's `messages.ts`/chat.py.
+  ops (working example: `references/messages.ts` + `chat-api.py`):
+  - **Edit** — `sendMessage({text, messageId})` on a user message: client
+    truncates at that message and POSTs `submit-message`; server cuts
+    stored history just before the matching stored user prompt and keeps
+    the replaced tail as a branch.
+  - **Retry** — same `submit-message` path on the unanswered tail prompt:
+    a failed run persisted nothing, so the id matches no stored prompt
+    and the server *appends* rather than cuts. Never route it through
+    regenerate.
+  - **Regenerate** — `regenerate-message` on a *completed* assistant tail:
+    re-answers the same stored prompt as a sibling version. Rejected
+    server-side (`UserError`) on an unstored tail — never wire it to the
+    error-retry path.
 - **Composer state** (drafts only — there is no send queue) lives in
   Zustand keyed by chat; stream state never does.
 - **Usage/cost display** reads `data-run-meta` + stored usage — no separate

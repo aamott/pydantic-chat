@@ -65,7 +65,7 @@ Permissions(mode=..., ask_commands=DEFAULT_ASK_COMMANDS, remembered=set())
   `SubAgents(shared_capabilities=[...])` — irrelevant while
   `sub_agents=False`.
 
-### Profile → capability assembly (from app #1's factory — preserve)
+### Profile → capability assembly (working example: `references/agent-factory.py`)
 
 | Profile | Assembly |
 |---|---|

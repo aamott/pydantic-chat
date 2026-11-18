@@ -18,6 +18,10 @@ library accounted for.
   installed packages (they ship with the libs; refresh on version bumps)
 - `inventory/current-app.md` — what app #1 actually does, incl. coupling
   that must survive the rebuild
+- `references/` — working implementations copied from the predecessor app:
+  **examples, not contracts** — for library-interop code that's expensive
+  to re-derive (transport, adapter wiring, capability assembly, store,
+  sidecar). See `references/README.md`
 
 ## Status
 
@@ -45,3 +49,6 @@ library accounted for.
    (⚠ notes), then treat the documented signatures as the contract.
 4. `inventory/` is the regression checklist: every behavior listed there
    either ships in app #2 or is an explicit cut.
+5. `references/` travels with the blueprint — cite it as "a working
+   example," never "port this file"; it predates app #2's deliberate
+   differences.

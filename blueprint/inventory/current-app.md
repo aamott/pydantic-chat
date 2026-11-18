@@ -3,7 +3,9 @@
 The baseline app #2 re-specifies. ~13k LOC; the goal is same scope, tighter
 organization — **not** new features. Source: `apps/backend/app`,
 `apps/desktop/src`, `packages/shared`, `plans/app-vision.md`,
-`docs/research/*`.
+`docs/research/*`. File paths are app-#1 provenance — the load-bearing
+implementations are vendored under `../references/` so this doc stands
+alone without the app-#1 repo.
 
 ## Backend (`apps/backend/app`)
 

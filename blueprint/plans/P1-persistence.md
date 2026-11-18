@@ -21,7 +21,8 @@ depends on.
   it's a session-browser store (`save(summary, messages)`/`get`/`listing`),
   not the ABC — it has no `read_record`/`read_entry` methods and cannot be
   passed as `conversation_store=`. (Borrow its CAS/media-externalization/
-  search-index ideas where useful.)
+  search-index ideas where useful.) Working example of the ABC over
+  per-`ModelMessage` rows: `references/conversation-store.py`.
 - **Version tree:** prompt edit/retry/regenerate create sibling versions via
   `ConversationStore.branch`/`fork`; the chat record points at a head
   version. Version switching never rewrites history rows.

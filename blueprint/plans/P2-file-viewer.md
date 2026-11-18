@@ -108,7 +108,7 @@ Feel-test questions the prototype raised:
 | Story | Acceptance criteria |
 |---|---|
 | Prototype in app #1 | ✅ done — feel-test + the 4 questions above resolve before app #2 builds it |
-| Files API | `GET/PUT /api/files` confined to workspace (lexical + realpath); `if_match`→409; `raw` for non-text; `rg` tree w/ gitignore + `os.walk` fallback; secret patterns (write-protect defaults + `denied_patterns` read-denial); 2 MiB cap + kind classification — ported 1:1 |
+| Files API | `GET/PUT /api/files` confined to workspace (lexical + realpath); `if_match`→409; `raw` for non-text; `rg` tree w/ gitignore + `os.walk` fallback; secret patterns (write-protect defaults + `denied_patterns` read-denial); 2 MiB cap + kind classification |
 | Tabbed editor | Open/preview/pin/close/reorder tabs; dirty dots + close guards; per-workspace tab sets; `#L<n>` deep-link opens + scrolls |
 | Monaco integration | Local bundling verified (airplane-mode test); lazy language loading; theme matches app tokens; DiffEditor used for conflicts + Diff panel |
 | Drawer | Selector (Explorer/Diff); overlay+scrim < breakpoint, pinned ≥ breakpoint; esc/outside-tap close; keyboard accessible |

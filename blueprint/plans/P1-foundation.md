@@ -18,6 +18,7 @@ resolved and documented.
   spawn `uv run uvicorn` on an ephemeral `127.0.0.1` port; per-launch bearer
   token generated in main, passed to renderer through preload (`contextBridge`),
   and to uvicorn via env. All routes except `/health` require it.
+  Working example: `references/sidecar.ts`.
 - **Supervision:** `/health` poll until ready; capped exponential restart
   backoff; process-group kill on exit (`taskkill /T` on Windows); an
   external-backend env override for backend dev.

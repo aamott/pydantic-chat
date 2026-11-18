@@ -1,9 +1,9 @@
 # Vercel AI SDK — the surface app #2 uses
 
 `ai@7.0.176` + `@ai-sdk/react@4.0.180` (move together; wire is
-`sdk_version=7` on the backend adapter). Source of truth for current usage:
-`apps/desktop/src/renderer/src/lib/transport.ts`, `stores/chats.ts`,
-`lib/messages.ts`, `lib/dataParts.ts`.
+`sdk_version=7` on the backend adapter). Working usage examples:
+`references/transport.ts`, `chats-store.ts`, `messages.ts`, `data-parts.ts`
+(see `references/README.md`).
 
 ## `Chat` + `useChat` — state ownership
 
