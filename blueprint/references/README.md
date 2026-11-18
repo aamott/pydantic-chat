@@ -29,6 +29,12 @@ Rules:
 | `events-bridge.py` | `agent.on_event` → `CustomEvent` → `data-plan`/`data-shell`/`data-run-meta`; stream-only (never persisted) | P1-agent-backend, `specs/pydantic-ai-harness.md` |
 | `agent-factory.py` | Per-run capability list, `ProfileFilter` via `get_wrapper_toolset`/`FilteredToolset`, profile→`Permissions` mapping, `visit_and_replace` allow/deny injection, judge resolution | P1-agent-backend |
 | `conversation-store.py` | `ConversationStore` ABC impl over per-`ModelMessage` rows — `load`/`save`/`branch`/`fork`, content-comparison branching, scope isolation | P1-persistence |
+| `profiles.py` | Effective-profile resolution chain (chat → workspace → global → default), `ensure_system_skills` bundled-skill seeding, tool/skill catalog endpoints | P1-agent-backend, P1-settings-registry |
+| `MessagePart.tsx` | Streamdown rehype-chain customization: `file` added to sanitize protocols + `FileAwareLink` click interception — the `file:` link gotcha, worked | P1-chat-core |
+| `electron.vite.config.ts` | electron-vite 3-target config, `externalizeDepsPlugin` + shared-workspace-pkg bundling gotcha | P1-foundation |
+| `electron-builder.yml` | Packaging config — `extraResources` backend bundling, `--dir`-only v1, naming gotchas | P1-foundation |
+| `vitest.config.mts`, `test-setup.ts` | Node+dom project config; jsdom gaps + `window.api` preload stub | P1-foundation |
+| `research/` | Two verified research notes: `conversation-durability.md` (the SDK↔adapter wire contract, verified against installed versions) and `tool-profiles-and-skills.md` (profile → toolset/skill mapping with source citations) | P1-chat-core, P1-agent-backend |
 
 Refresh note: these are snapshots of app #1 at blueprint time. They don't
 track later app-#1 changes — and don't need to; they're illustrations.

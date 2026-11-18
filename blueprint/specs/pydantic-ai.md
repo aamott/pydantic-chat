@@ -167,3 +167,10 @@ This spec is pinned to `pydantic-ai-slim==2.70.0` — 0.x moves fast. On any
 version bump, re-fetch the API pages for `Agent`, `RunContext`,
 `ConversationStore`, and `VercelAIAdapter` rather than trusting this doc
 or memory.
+
+**Check the installed package first — it ships docs.** `pydantic_ai` wheels
+include `CLAUDE.md`/`AGENTS.md` files (package root + `ui/`, `toolsets/`,
+`capabilities/`, `providers/`, `models/` subpackages) covering internals —
+message-history trust model, framing rules, wire semantics — plus heavily
+docstring'd source. Look under `site-packages/pydantic_ai/` before reaching
+for the web.

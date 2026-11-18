@@ -118,3 +118,11 @@ This spec is pinned to `ai@7`/`@ai-sdk/react@4` — on any version bump,
 re-fetch the reference pages for `Chat`, `DefaultChatTransport`, and
 `UIMessage` rather than trusting this doc or memory. Context7 also indexes
 the AI SDK for targeted snippet lookups.
+
+**Check the installed package first — it ships the docs.** `node_modules/ai`
+includes `src/` (full TypeScript source) and `docs/` (~250 `.mdx` files —
+an offline mirror of ai-sdk.dev, including the stream-protocol spec at
+`ai/docs/04-ai-sdk-ui/50-stream-protocol.mdx` and the full API reference
+under `ai/docs/07-reference/`). `@ai-sdk/react` ships `src/`. For
+signature questions, the package's `src/` + `ui-message-chunks.ts` zod
+schema is more authoritative than the website; reading it beats googling.

@@ -178,8 +178,13 @@ query params). Harness pages live under `/docs/ai/harness/`:
 - No published harness API reference (`/docs/ai/api/pydantic-ai-harness/`
   does not exist — verified 404) — signatures come from the guide pages,
   the vendored docs, or the installed package source.
-- Vendored upstream docs already at `specs/vendor/pydantic-ai-harness/`;
-  refresh them on version bumps.
+- Vendored upstream docs at `specs/vendor/pydantic-ai-harness/`; refresh
+  on version bumps. The wheel also ships deeper per-subpackage
+  `README.md`s (step persistence, shell internals, filesystem patterns) —
+  once installed, they're at
+  `site-packages/pydantic_ai_harness/<subpackage>/README.md`. Check there
+  before reaching for the web; deliberately NOT vendored since install
+  delivers them anyway.
 
 Pinned to `pydantic-ai-harness==0.70.0` (hard-pins slim). On bumps,
 re-fetch the `Coder`, `FileSystem`, `Shell`, `Planning`, `Permissions`,

@@ -14,14 +14,19 @@ library accounted for.
 - `specs/pydantic-ai.md`, `specs/pydantic-ai-harness.md`,
   `specs/vercel-ai-sdk.md` — the exact API surfaces used, verified against
   installed versions
-- `specs/vendor/` — upstream skill/reference docs vendored from the
-  installed packages (they ship with the libs; refresh on version bumps)
+- `specs/vendor/` — upstream docs vendored so implementors don't google:
+  the pydantic-ai/-harness **skill docs** (curated agent-facing bundles)
+  plus `monaco/` (the only dependency with no docs in-repo or in-package).
+  Everything else arrives with `uv sync`/`bun install` — specs point at
+  the in-package doc locations instead of duplicating them. Refresh the
+  vendored files on version bumps
 - `inventory/current-app.md` — what app #1 actually does, incl. coupling
   that must survive the rebuild
-- `references/` — working implementations copied from the predecessor app:
-  **examples, not contracts** — for library-interop code that's expensive
-  to re-derive (transport, adapter wiring, capability assembly, store,
-  sidecar). See `references/README.md`
+- `references/` — working implementations + configs copied from the
+  predecessor app: **examples, not contracts** — for library-interop code
+  that's expensive to re-derive (transport, adapter wiring, capability
+  assembly, store, sidecar, toolchain configs). Includes `research/` — two
+  verified wire-contract notes. See `references/README.md`
 
 ## Status
 

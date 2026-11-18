@@ -68,7 +68,7 @@ harness-native, no hand-rolled tools.
 | ProfileFilter | Filtered toolset applied; `load_capability` always reachable; MCP prefix matching works; profile switch mid-run takes effect next call |
 | Permissions wiring | All four modes verified against `shell`+`write_file`; `read-only` denies both; approvals surface as `DeferredToolRequests` |
 | Judge | `smart` resolves judge in documented order; degrade-to-manual warns; bad explicit judge errors clearly |
-| Skills | System+workspace dirs loaded, dedup'd; bundled skills seeded into the skills dir on first run (`ensure_skills_dir`); catalog API returns both; `disable-model-invocation` respected |
+| Skills | System+workspace dirs loaded, dedup'd; bundled skills seeded into the skills dir on first run (`ensure_system_skills` — see `references/profiles.py`); catalog API returns both; `disable-model-invocation` respected |
 | MCP runtime | Registry specs → prefixed toolsets; workspace mask disables servers; env/header secrets never logged; failing server degrades gracefully |
 | Events bridge | Plan/shell/run-meta events emit `data-*` parts; persisted transcript contains none of them |
 | Step persistence | `SqliteStepStore` in `app.db`; resume uses `list_runs`/`latest_snapshot`/`list_unresolved_tool_effects` (or `continue_run`); `SqlitePlanStore(path, session=chat_id)` scopes plans per chat |
